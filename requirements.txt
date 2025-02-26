@@ -1,5 +1,5 @@
 streamlit
 sentence-transformers
-pinecone-client
+pinecone
 paypalrestsdk
 python-dotenv

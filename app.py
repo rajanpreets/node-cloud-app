@@ -5,9 +5,31 @@ from config import PINECONE_API_KEY, PINECONE_ENVIRONMENT
 from paypal import is_subscribed
 from groq_summarizer import summarize_results
 
+
+import streamlit as st
+import os
+from pinecone import Pinecone, ServerlessSpec
+
+# Load secrets from Streamlit
+PINECONE_API_KEY = st.secrets["PINECONE_API_KEY"]
+PINECONE_ENVIRONMENT = st.secrets["PINECONE_ENVIRONMENT"]
+
 # Initialize Pinecone
-pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENVIRONMENT)
-index = pinecone.Index("job-listings")
+pc = Pinecone(api_key=PINECONE_API_KEY)
+
+# Check if index exists, create if necessary
+index_name = "job-listings"
+if index_name not in pc.list_indexes().names():
+    pc.create_index(
+        name=index_name,
+        dimension=1536,  # Adjust based on your embedding model
+        metric='cosine',
+        spec=ServerlessSpec(
+            cloud='aws',
+            region='us-west-2'  # Change region as needed
+        )
+    )
+
 
 # Load Sentence Transformer Model
 model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")

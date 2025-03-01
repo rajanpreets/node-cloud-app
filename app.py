@@ -18,12 +18,6 @@ PINECONE_INDEX_NAME = "rajan"
 # Initialize Pinecone
 pc = Pinecone(api_key=PINECONE_API_KEY)
 
-# Ensure the index exists before using it
-available_indexes = [idx["name"] for idx in pc.list_indexes()]
-if INDEX_NAME not in available_indexes:
-    st.error(f"Error: Index '{INDEX_NAME}' does not exist. Please create it in Pinecone.")
-    st.stop()
-
 # Initialize the Pinecone index
 index = pc.Index(INDEX_NAME)  # ✅ Correct way to access the index
 

@@ -17,7 +17,6 @@ INDEX_NAME = "rajan"
 # Initialize Pinecone
 pc = Pinecone(api_key=PINECONE_API_KEY)
 
-
 # Initialize the Pinecone index
 index = pc.Index(INDEX_NAME)
 
@@ -29,26 +28,34 @@ llm = ChatGroq(model="llama3-8b-8192", temperature=0, api_key=GROQ_API_KEY)
 
 # Function to normalize embeddings
 def normalize_vector(vec):
-    return vec / np.linalg.norm(vec)
+    norm = np.linalg.norm(vec)
+    return vec / norm if norm > 0 else vec
 
 # Function to retrieve jobs using LLM and Pinecone
 def retrieve_jobs(query):
-    query_embedding = [normalize_vector(embedding_model.encode(query)).tolist()]  # Wrap in list
+    try:
+        query_embedding = embedding_model.encode(query).tolist()  # Ensure it's a list
 
-    # Check if index has data
-    index_stats = index.describe_index_stats()
-    if index_stats["total_vector_count"] == 0:
-        return "⚠️ No job data available in Pinecone. Try a different query."
+        # Debugging: Print embedding shape
+        st.write(f"🔍 Embedding length: {len(query_embedding)}")
 
-    # Perform the query
-    results = index.query(query_embedding, top_k=5, include_metadata=True)
+        # Check if index has data
+        index_stats = index.describe_index_stats()
+        if index_stats["total_vector_count"] == 0:
+            return "⚠️ No job data available in Pinecone. Try a different query."
 
-    jobs = [match["metadata"] for match in results.get("matches", [])]
+        # Perform the query
+        results = index.query(vector=query_embedding, top_k=5, include_metadata=True)
 
-    if not jobs:
-        return "⚠️ No matching jobs found. Try refining your search query."
+        if "matches" in results and results["matches"]:
+            jobs = [match["metadata"] for match in results["matches"]]
+            return jobs
+        else:
+            return "⚠️ No matching jobs found. Try refining your search query."
 
-    return jobs
+    except Exception as e:
+        st.error(f"❌ Error in job retrieval: {str(e)}")
+        return "⚠️ Something went wrong. Try again!"
 
 # Function to generate AI response for follow-up questions
 def generate_answer(context, question):
@@ -70,7 +77,7 @@ user_query = st.text_area("💼 Enter your job-related query (skills, industry, 
 if st.button("🔍 Find Jobs"):
     if user_query.strip():
         jobs = retrieve_jobs(user_query)
-        
+
         if isinstance(jobs, list):
             st.write("### 🔹 Top Matching Jobs:")
             for job in jobs:

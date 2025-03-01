@@ -12,7 +12,7 @@ load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 PINECONE_ENV = os.getenv("PINECONE_ENV")
-INDEX_NAME = "rajan"  # Ensure this index exists
+INDEX_NAME = "rajan"  # Ensure this index exists in Pinecone
 
 # Initialize Pinecone
 try:
@@ -52,19 +52,39 @@ def retrieve_jobs_from_pinecone(resume_text):
     except Exception as e:
         return f"⚠️ Error querying Pinecone: {e}"
 
+# Function to format job listings into readable text for LLM
+def format_jobs_for_llm(jobs):
+    if isinstance(jobs, str):  # If an error message was returned
+        return jobs
+
+    job_texts = []
+    for job in jobs:
+        title = job.get("title", "Unknown")
+        company = job.get("company", "Unknown")
+        location = job.get("location", "N/A")
+        salary = job.get("salary", "N/A")
+        description = job.get("description", "No description available")
+        
+        job_text = f"**{title}** at {company}, located in {location}. Salary: {salary}. Description: {description}"
+        job_texts.append(job_text)
+
+    return "\n\n".join(job_texts)
+
 # Function to generate job listing using LLM
 def generate_job_listings(jobs):
-    if isinstance(jobs, str):  # If it's an error message, return as-is
-        return jobs
+    formatted_jobs = format_jobs_for_llm(jobs)
+
+    if "⚠️" in formatted_jobs:  # If an error occurred earlier
+        return formatted_jobs
     
     prompt = ChatPromptTemplate.from_messages([
         ("system", "You are a job search assistant. Based on the retrieved job listings, suggest the best jobs."),
-        ("human", "Here are relevant job listings: {jobs}. Provide a professional summary.")
+        ("human", "Here are relevant job listings:\n\n{jobs}\n\nProvide a professional summary for the user.")
     ])
     
     try:
-        response = llm.invoke({"jobs": jobs})
-        return response
+        response = llm.invoke({"jobs": formatted_jobs})
+        return response.content if hasattr(response, "content") else str(response)
     except Exception as e:
         return f"⚠️ LLM error: {e}"
 

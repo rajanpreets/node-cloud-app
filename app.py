@@ -15,10 +15,16 @@ PINECONE_ENV = os.getenv("PINECONE_ENV")
 PINECONE_INDEX_NAME = "rajan"
 
 # Initialize Pinecone
-pinecone.init(api_key=PINECONE_API_KEY)
+pc = Pinecone(api_key=PINECONE_API_KEY)
 
-# Connect to the index
-index = pinecone.Index(PINECONE_INDEX_NAME)
+# Ensure the index exists before using it
+available_indexes = [idx["name"] for idx in pc.list_indexes()]
+if INDEX_NAME not in available_indexes:
+    st.error(f"Error: Index '{INDEX_NAME}' does not exist. Please create it in Pinecone.")
+    st.stop()
+
+# Initialize the Pinecone index
+index = pc.Index(INDEX_NAME)  # ✅ Correct way to access the index
 
 # Load Embedding Model
 embedding_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")

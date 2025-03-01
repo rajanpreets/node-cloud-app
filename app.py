@@ -65,7 +65,7 @@ def format_jobs_for_llm(jobs):
         salary = job.get("salary", "N/A")
         description = job.get("description", "No description available")
         
-        job_text = f"**{title}** at {company}, located in {location}. Salary: {salary}. Description: {description}"
+        job_text = f"Title: {title}\nCompany: {company}\nLocation: {location}\nSalary: {salary}\nDescription: {description}\n"
         job_texts.append(job_text)
 
     return "\n\n".join(job_texts)
@@ -79,11 +79,11 @@ def generate_job_listings(jobs):
     
     prompt = ChatPromptTemplate.from_messages([
         ("system", "You are a job search assistant. Based on the retrieved job listings, suggest the best jobs."),
-        ("human", "Here are relevant job listings:\n\n{jobs}\n\nProvide a professional summary for the user.")
+        ("human", f"Here are relevant job listings:\n\n{formatted_jobs}\n\nProvide a professional summary for the user.")
     ])
     
     try:
-        response = llm.invoke({"jobs": formatted_jobs})
+        response = llm.invoke(prompt.format())  # Convert to string before passing
         return response.content if hasattr(response, "content") else str(response)
     except Exception as e:
         return f"⚠️ LLM error: {e}"

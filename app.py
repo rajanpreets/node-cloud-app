@@ -31,39 +31,36 @@ def normalize_vector(vec):
     norm = np.linalg.norm(vec)
     return vec / norm if norm > 0 else vec
 
-# Function to retrieve jobs using LLM and Pinecone
+# Function to retrieve jobs from Pinecone
 def retrieve_jobs(query):
     try:
-        query_embedding = embedding_model.encode(query).tolist()  # Ensure it's a list
-
-        # Debugging: Print embedding shape
-        st.write(f"🔍 Embedding length: {len(query_embedding)}")
+        query_embedding = embedding_model.encode(query).tolist()  # Convert to list
 
         # Check if index has data
         index_stats = index.describe_index_stats()
         if index_stats["total_vector_count"] == 0:
-            return "⚠️ No job data available in Pinecone. Try a different query."
+            return None, "⚠️ No job data available in Pinecone. Try a different query."
 
         # Perform the query
         results = index.query(vector=query_embedding, top_k=5, include_metadata=True)
 
         if "matches" in results and results["matches"]:
             jobs = [match["metadata"] for match in results["matches"]]
-            return jobs
+            return jobs, None
         else:
-            return "⚠️ No matching jobs found. Try refining your search query."
+            return None, "⚠️ No matching jobs found. Try refining your search query."
 
     except Exception as e:
         st.error(f"❌ Error in job retrieval: {str(e)}")
-        return "⚠️ Something went wrong. Try again!"
+        return None, "⚠️ Something went wrong. Try again!"
 
-# Function to generate AI response for follow-up questions
-def generate_answer(context, question):
+# Function to generate LLM response based on retrieved jobs
+def generate_job_listings(jobs):
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a job search assistant. Answer based on the provided job listings."),
-        ("human", "Job Listings: {context} \n\n Question: {question}")
+        ("system", "You are a helpful job assistant. Based on the provided job listings, create a structured and user-friendly list of job opportunities."),
+        ("human", "Here are the job listings: {jobs} \n\n Please format them clearly.")
     ])
-    return llm.invoke({"context": context, "question": question})
+    return llm.invoke({"jobs": jobs})
 
 # Streamlit UI
 st.set_page_config(page_title="🔍 AI Job Finder", layout="wide")
@@ -76,19 +73,14 @@ user_query = st.text_area("💼 Enter your job-related query (skills, industry, 
 
 if st.button("🔍 Find Jobs"):
     if user_query.strip():
-        jobs = retrieve_jobs(user_query)
+        jobs, error_message = retrieve_jobs(user_query)
 
-        if isinstance(jobs, list):
-            st.write("### 🔹 Top Matching Jobs:")
-            for job in jobs:
-                st.write(f"**{job.get('title', 'Unknown')}** at {job.get('company', 'Unknown')}")
-                st.write(f"📍 {job.get('location', 'N/A')} | 💰 {job.get('salary', 'N/A')}")
-                st.write(f"📝 {job.get('description', 'No Description')}")
-                st.write("---")
+        if jobs:
+            st.write("### 🤖 AI-Generated Job Listings:")
+            job_listings = generate_job_listings(jobs)
+            st.write(job_listings)  # Display formatted response from LLM
         else:
-            st.write("🤖 **AI-Generated Job Suggestions:**")
-            st.write(jobs)  # LLM-generated job recommendations
-
+            st.error(error_message)
     else:
         st.error("⚠️ Please enter a job query!")
 
@@ -97,7 +89,7 @@ follow_up = st.text_input("🤖 Ask a question about these jobs:")
 
 if st.button("🤖 Get AI Answer"):
     if follow_up.strip() and 'jobs' in locals() and jobs:
-        answer = generate_answer(jobs, follow_up)
+        answer = generate_job_listings(jobs)  # Reuse LLM for follow-up questions
         st.write("### 🤖 AI Response:")
         st.write(answer)
     else:

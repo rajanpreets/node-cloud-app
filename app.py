@@ -15,7 +15,9 @@ PINECONE_ENV = os.getenv("PINECONE_ENV")
 PINECONE_INDEX_NAME = "rajan"
 
 # Initialize Pinecone
-pinecone.init(api_key=PINECONE_API_KEY, environment=PINECONE_ENV)
+pinecone.init(api_key=PINECONE_API_KEY)
+
+# Connect to the index
 index = pinecone.Index(PINECONE_INDEX_NAME)
 
 # Load Embedding Model

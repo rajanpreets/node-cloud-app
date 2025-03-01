@@ -17,10 +17,6 @@ INDEX_NAME = "rajan"
 # Initialize Pinecone
 pc = Pinecone(api_key=PINECONE_API_KEY)
 
-# Ensure the index exists
-if INDEX_NAME not in pc.list_indexes():
-    st.error(f"Index '{INDEX_NAME}' not found in Pinecone. Please check your setup.")
-    st.stop()  # Stop execution if index is missing
 
 # Initialize the Pinecone index
 index = pc.Index(INDEX_NAME)

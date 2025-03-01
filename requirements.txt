@@ -1,5 +1,7 @@
 streamlit
 sentence-transformers
 pinecone
+langchain-core
+langchain_groq
 paypalrestsdk
 python-dotenv

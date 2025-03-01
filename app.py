@@ -1,5 +1,4 @@
 import streamlit as st
-
 import os
 from pinecone import Pinecone
 import numpy as np
@@ -18,8 +17,13 @@ INDEX_NAME = "rajan"
 # Initialize Pinecone
 pc = Pinecone(api_key=PINECONE_API_KEY)
 
+# Ensure the index exists
+if INDEX_NAME not in pc.list_indexes():
+    st.error(f"Index '{INDEX_NAME}' not found in Pinecone. Please check your setup.")
+    st.stop()  # Stop execution if index is missing
+
 # Initialize the Pinecone index
-index = pc.Index(INDEX_NAME)  # ✅ Correct way to access the index
+index = pc.Index(INDEX_NAME)
 
 # Load Embedding Model
 embedding_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
@@ -33,20 +37,21 @@ def normalize_vector(vec):
 
 # Function to retrieve jobs using LLM and Pinecone
 def retrieve_jobs(query):
-    query_embedding = normalize_vector(embedding_model.encode(query)).tolist()
+    query_embedding = [normalize_vector(embedding_model.encode(query)).tolist()]  # Wrap in list
+
+    # Check if index has data
+    index_stats = index.describe_index_stats()
+    if index_stats["total_vector_count"] == 0:
+        return "⚠️ No job data available in Pinecone. Try a different query."
+
+    # Perform the query
     results = index.query(query_embedding, top_k=5, include_metadata=True)
 
-    jobs = [match["metadata"] for match in results["matches"]] if results.get("matches") else []
-    
+    jobs = [match["metadata"] for match in results.get("matches", [])]
+
     if not jobs:
-        # If no jobs found, ask LLM to generate job recommendations
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", "You are a job search assistant. Suggest job roles based on user queries."),
-            ("human", "User is looking for: {query}. Provide relevant job titles and details.")
-        ])
-        response = llm.invoke({"query": query})
-        return response  # LLM-generated job suggestions
-    
+        return "⚠️ No matching jobs found. Try refining your search query."
+
     return jobs
 
 # Function to generate AI response for follow-up questions

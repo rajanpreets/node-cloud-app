@@ -72,17 +72,14 @@ def generate_job_listings(jobs):
 st.set_page_config(page_title="🔍 AI Job Finder", layout="wide")
 
 st.title("🔍 AI Job Finder")
-st.write("Upload your resume, and our AI will find the best job matches for you!")
+st.write("Paste your resume, and our AI will find the best job matches for you!")
 
-# Resume Upload
-uploaded_file = st.file_uploader("📄 Upload your resume (TXT format)", type=["txt"])
+# Resume Input Box
+resume_text = st.text_area("📄 Paste your resume here:", height=200)
 
-if uploaded_file:
-    resume_text = uploaded_file.read().decode("utf-8")
-    
-    if st.button("🔍 Find My Best Job Matches"):
-        jobs = retrieve_jobs_from_pinecone(resume_text)
-        job_listings = generate_job_listings(jobs)
+if st.button("🔍 Find My Best Job Matches") and resume_text.strip():
+    jobs = retrieve_jobs_from_pinecone(resume_text)
+    job_listings = generate_job_listings(jobs)
 
-        st.write("### 🤖 AI Job Recommendations:")
-        st.write(job_listings)
+    st.write("### 🤖 AI Job Recommendations:")
+    st.write(job_listings)

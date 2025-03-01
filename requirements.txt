@@ -4,5 +4,7 @@ pinecone
 langchain-core
 PyPDF2
 langchain_groq
+langgraph==0.0.17
+pydantic>=2.0.0
 paypalrestsdk
 python-dotenv

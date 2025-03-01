@@ -6,6 +6,7 @@ from sentence_transformers import SentenceTransformer
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from dotenv import load_dotenv
+import PyPDF2  # For extracting text from PDFs
 
 # Load environment variables
 load_dotenv()
@@ -16,8 +17,6 @@ INDEX_NAME = "rajan"
 
 # Initialize Pinecone
 pc = Pinecone(api_key=PINECONE_API_KEY)
-
-# Initialize the Pinecone index
 index = pc.Index(INDEX_NAME)
 
 # Load Embedding Model
@@ -26,71 +25,74 @@ embedding_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 # Initialize LLM Model
 llm = ChatGroq(model="llama3-8b-8192", temperature=0, api_key=GROQ_API_KEY)
 
+# Function to extract text from a PDF
+def extract_text_from_pdf(pdf_file):
+    reader = PyPDF2.PdfReader(pdf_file)
+    text = " ".join([page.extract_text() for page in reader.pages if page.extract_text()])
+    return text
+
 # Function to normalize embeddings
 def normalize_vector(vec):
-    norm = np.linalg.norm(vec)
-    return vec / norm if norm > 0 else vec
+    return vec / np.linalg.norm(vec)
 
 # Function to retrieve jobs from Pinecone
-def retrieve_jobs(query):
-    try:
-        query_embedding = embedding_model.encode(query).tolist()  # Convert to list
+def retrieve_jobs_from_pinecone(resume_text):
+    query_embedding = [normalize_vector(embedding_model.encode(resume_text)).tolist()]  # Convert text to vector
 
-        # Check if index has data
-        index_stats = index.describe_index_stats()
-        if index_stats["total_vector_count"] == 0:
-            return None, "⚠️ No job data available in Pinecone. Try a different query."
+    # Check if index has data
+    index_stats = index.describe_index_stats()
+    if index_stats["total_vector_count"] == 0:
+        return "⚠️ No job data available in Pinecone. Try again later."
 
-        # Perform the query
-        results = index.query(vector=query_embedding, top_k=5, include_metadata=True)
+    # Perform the query
+    results = index.query(query_embedding, top_k=5, include_metadata=True)
+    jobs = [match["metadata"] for match in results.get("matches", [])]
 
-        if "matches" in results and results["matches"]:
-            jobs = [match["metadata"] for match in results["matches"]]
-            return jobs, None
-        else:
-            return None, "⚠️ No matching jobs found. Try refining your search query."
+    if not jobs:
+        return "⚠️ No matching jobs found for your resume."
 
-    except Exception as e:
-        st.error(f"❌ Error in job retrieval: {str(e)}")
-        return None, "⚠️ Something went wrong. Try again!"
+    return jobs
 
-# Function to generate LLM response based on retrieved jobs
-def generate_job_listings(jobs):
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a helpful job assistant. Based on the provided job listings, create a structured and user-friendly list of job opportunities."),
-        ("human", "Here are the job listings: {jobs} \n\n Please format them clearly.")
+# Function to generate AI job recommendations
+def generate_ai_job_recommendations(jobs):
+    job_text = "\n\n".join([
+        f"**{job.get('title', 'Unknown')}** at {job.get('company', 'Unknown')}\n"
+        f"📍 {job.get('location', 'N/A')} | 💰 {job.get('salary', 'N/A')}\n"
+        f"📝 {job.get('description', 'No Description')}"
+        for job in jobs
     ])
-    return llm.invoke({"jobs": jobs})
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", "You are an AI job assistant. Given the following job listings, present the best opportunities in a user-friendly and engaging format."),
+        ("human", "Here is the extracted resume:\n\n{resume_text}\n\nBased on this, I found the following jobs:\n\n{job_text}\n\nPlease provide a structured response.")
+    ])
+
+    return llm.invoke({"resume_text": resume_text, "job_text": job_text})
 
 # Streamlit UI
-st.set_page_config(page_title="🔍 AI Job Finder", layout="wide")
+st.set_page_config(page_title="🔍 AI Job Matcher", layout="wide")
 
-st.title("🔍 AI Job Finder")
-st.write("Find jobs based on your query. No need for predefined criteria!")
+st.title("📄 AI Resume-Based Job Finder")
+st.write("Upload your resume, and AI will find the best job matches for you.")
 
-# User input for job search
-user_query = st.text_area("💼 Enter your job-related query (skills, industry, location, etc.):", height=150)
+# User uploads resume
+uploaded_file = st.file_uploader("📎 Upload your resume (PDF format only):", type=["pdf"])
 
-if st.button("🔍 Find Jobs"):
-    if user_query.strip():
-        jobs, error_message = retrieve_jobs(user_query)
+if uploaded_file:
+    resume_text = extract_text_from_pdf(uploaded_file)
 
-        if jobs:
-            st.write("### 🤖 AI-Generated Job Listings:")
-            job_listings = generate_job_listings(jobs)
-            st.write(job_listings)  # Display formatted response from LLM
+    if resume_text.strip():
+        st.success("✅ Resume uploaded successfully. Searching for best job matches...")
+
+        # Retrieve relevant jobs from Pinecone
+        jobs = retrieve_jobs_from_pinecone(resume_text)
+
+        if isinstance(jobs, list):
+            # Generate AI-generated job recommendations
+            ai_response = generate_ai_job_recommendations(jobs)
+            st.write("### 🤖 AI-Generated Job Recommendations:")
+            st.write(ai_response)  # Display the AI-generated output
         else:
-            st.error(error_message)
+            st.write(jobs)  # Display error message if no jobs found
     else:
-        st.error("⚠️ Please enter a job query!")
-
-# Follow-up Question
-follow_up = st.text_input("🤖 Ask a question about these jobs:")
-
-if st.button("🤖 Get AI Answer"):
-    if follow_up.strip() and 'jobs' in locals() and jobs:
-        answer = generate_job_listings(jobs)  # Reuse LLM for follow-up questions
-        st.write("### 🤖 AI Response:")
-        st.write(answer)
-    else:
-        st.error("⚠️ Enter a valid question and make sure job results are displayed!")
+        st.error("⚠️ Could not extract text from resume. Try another file.")

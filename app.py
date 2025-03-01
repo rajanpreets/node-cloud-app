@@ -110,7 +110,33 @@ app = workflow.compile()
 
 # Streamlit UI components
 def display_jobs_table(jobs):
-    # ... (keep your existing display_jobs_table implementation) ...
+    if not jobs or isinstance(jobs, str):
+        st.error(jobs if jobs else "No jobs found")
+        return
+    
+    # Create DataFrame with relevant columns
+    jobs_df = pd.DataFrame([{
+        "Title": job.get("Job Title", "N/A"),
+        "Company": job.get("Company Name", "N/A"),
+        "Location": job.get("Location", "N/A"),
+        "Description": (job.get("Job Description", "")[:150] + "...") if job.get("Job Description") else "N/A",
+        "Link": job.get("Job Link", "#")
+    } for job in jobs])
+    
+    # Display as interactive table with clickable links
+    if not jobs_df.empty:
+        st.markdown("### 🗃️ Matching Jobs")
+        st.dataframe(
+            jobs_df,
+            column_config={
+                "Link": st.column_config.LinkColumn("Apply Now"),
+                "Description": "Job Summary"
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+    else:
+        st.warning("No valid job listings found")
 
 # Streamlit UI
 st.set_page_config(page_title="💬 AI Career Assistant", layout="wide")

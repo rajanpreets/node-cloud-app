@@ -1,6 +1,7 @@
 import streamlit as st
-import pinecone
+
 import os
+from pinecone import Pinecone
 import numpy as np
 from sentence_transformers import SentenceTransformer
 from langchain_groq import ChatGroq

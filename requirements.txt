@@ -2,6 +2,7 @@ streamlit
 sentence-transformers
 pinecone
 langchain-core
+PyPDF2
 langchain_groq
 paypalrestsdk
 python-dotenv

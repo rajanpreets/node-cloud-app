@@ -1,38 +1,39 @@
 import psycopg2
 from contextlib import contextmanager
 import bcrypt
-import streamlit as st
+import os
 import logging
+from typing import Optional, Tuple
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 @contextmanager
 def get_db_connection():
-    """Get database connection with proper error handling"""
+    """Get database connection with environment fallback"""
     try:
         conn = psycopg2.connect(
-            dbname=os.getenv("DB_NAME", st.secrets.get("DB_NAME")),
-            user=os.getenv("DB_USER", st.secrets.get("DB_USER")),
-            password=os.getenv("DB_PASSWORD", st.secrets.get("DB_PASSWORD")),
-            host=os.getenv("DB_HOST", st.secrets.get("DB_HOST")),
-            port=os.getenv("DB_PORT", st.secrets.get("DB_PORT", 5432))
+            dbname=os.getenv("DB_NAME"),
+            user=os.getenv("DB_USER"),
+            password=os.getenv("DB_PASSWORD"),
+            host=os.getenv("DB_HOST"),
+            port=os.getenv("DB_PORT", "5432")
         )
+        conn.autocommit = False
         try:
             yield conn
         finally:
             conn.close()
     except Exception as e:
-        logger.error(f"Database connection failed: {str(e)}")
-        st.error("Database connection error. Please try again later.")
+        logger.error(f"Connection failed: {str(e)}")
         raise
 
 def init_db():
-    """Initialize database with proper error handling"""
+    """Initialize database tables"""
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                # Create users table
+                # Users table
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS users (
                         id SERIAL PRIMARY KEY,
@@ -43,60 +44,69 @@ def init_db():
                         last_login TIMESTAMP
                     );
                 """)
-                # Create jobs table (example additional table)
+                # Sessions table
                 cur.execute("""
-                    CREATE TABLE IF NOT EXISTS user_jobs (
-                        id SERIAL PRIMARY KEY,
+                    CREATE TABLE IF NOT EXISTS user_sessions (
+                        session_id VARCHAR(40) PRIMARY KEY,
                         user_id INTEGER REFERENCES users(id),
-                        job_data JSONB,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        expires_at TIMESTAMP NOT NULL
                     );
                 """)
                 conn.commit()
     except Exception as e:
-        logger.error(f"Database initialization failed: {str(e)}")
-        st.error("Database initialization failed. Please check your credentials.")
+        logger.error(f"Init failed: {str(e)}")
+        raise
 
-def create_user(username, password, email):
-    """Create user with proper error handling"""
-    try:
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
+def create_user(username: str, password: str, email: str) -> int:
+    """Create new user with validation"""
+    if len(password) < 8:
+        raise ValueError("Password must be at least 8 characters")
+        
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            try:
                 password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
                 cur.execute("""
                     INSERT INTO users (username, password_hash, email)
                     VALUES (%s, %s, %s)
                     RETURNING id
                 """, (username, password_hash, email))
+                user_id = cur.fetchone()[0]
                 conn.commit()
-                return cur.fetchone()[0]
-    except psycopg2.IntegrityError:
-        raise ValueError("Username already exists")
-    except Exception as e:
-        logger.error(f"User creation failed: {str(e)}")
-        raise RuntimeError("User creation failed")
+                return user_id
+            except psycopg2.IntegrityError:
+                conn.rollback()
+                raise ValueError("Username already exists")
+            except Exception as e:
+                conn.rollback()
+                logger.error(f"Create user failed: {str(e)}")
+                raise RuntimeError("Registration failed")
 
-def get_user_by_username(username):
-    """Get user by username with proper error handling"""
+def get_user_by_username(username: str) -> Optional[Tuple]:
+    """Retrieve user by username"""
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT * FROM users WHERE username = %s", (username,))
+                cur.execute("""
+                    SELECT id, username, password_hash, email 
+                    FROM users 
+                    WHERE username = %s
+                """, (username,))
                 return cur.fetchone()
     except Exception as e:
-        logger.error(f"User retrieval failed: {str(e)}")
+        logger.error(f"Get user failed: {str(e)}")
         return None
 
-def verify_password(stored_hash, password):
-    """Verify password with bcrypt"""
+def verify_password(stored_hash: str, password: str) -> bool:
+    """Securely verify password"""
     try:
         return bcrypt.checkpw(password.encode(), stored_hash.encode())
     except Exception as e:
-        logger.error(f"Password verification failed: {str(e)}")
+        logger.error(f"Password verify failed: {str(e)}")
         return False
 
-def update_last_login(username):
-    """Update last login timestamp"""
+def update_last_login(username: str):
+    """Update user's last login timestamp"""
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
@@ -107,4 +117,5 @@ def update_last_login(username):
                 """, (username,))
                 conn.commit()
     except Exception as e:
-        logger.error(f"Last login update failed: {str(e)}")
+        logger.error(f"Update last login failed: {str(e)}")
+        raise

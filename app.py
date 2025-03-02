@@ -1,54 +1,37 @@
 import streamlit as st
 import os
-import pandas as pd
-import firebase_admin
 import json
+import firebase_admin
 from firebase_admin import credentials, auth
-from pinecone import Pinecone, ServerlessSpec
-from sentence_transformers import SentenceTransformer
-from langgraph.graph import StateGraph, END
-from langchain_groq import ChatGroq
-from langchain_core.prompts import ChatPromptTemplate
 from dotenv import load_dotenv
-from typing import TypedDict, List, Annotated
-import operator
 from streamlit.components.v1 import html
 
 # Load environment variables
 load_dotenv()
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
-INDEX_NAME = "rajan"
-EMBEDDING_DIMENSION = 384
 
 # Firebase Initialization ======================================================
 def initialize_firebase():
     if not firebase_admin._apps:
         try:
-            # Load Firebase configuration from secrets
-            firebase_secrets = dict(st.secrets["firebase"])
+            firebase_secrets = {
+                "type": st.secrets["firebase"]["type"],
+                "project_id": st.secrets["firebase"]["project_id"],
+                "private_key_id": st.secrets["firebase"]["private_key_id"],
+                "private_key": st.secrets["firebase"]["private_key"],
+                "client_email": st.secrets["firebase"]["client_email"],
+                "client_id": st.secrets["firebase"]["client_id"],
+                "auth_uri": st.secrets["firebase"]["auth_uri"],
+                "token_uri": st.secrets["firebase"]["token_uri"],
+                "auth_provider_x509_cert_url": st.secrets["firebase"]["auth_provider_x509_cert_url"],
+                "client_x509_cert_url": st.secrets["firebase"]["client_x509_cert_url"]
+            }
             
-            # Remove non-essential keys that might cause issues
-            firebase_secrets.pop("universe_domain", None)
-            
-            # Initialize Firebase app
             cred = credentials.Certificate(firebase_secrets)
             firebase_admin.initialize_app(cred)
-            
-            # Verify connection
             auth.list_users()
             
         except Exception as e:
-            st.error(f"""
-            🔥 Firebase Initialization Error: {str(e)}
-            
-            Common Fixes:
-            1. Verify service account credentials in secrets.toml
-            2. Check Firebase project permissions at [Google Cloud Console](https://console.cloud.google.com)
-            3. Ensure authorized domains include:
-               - localhost
-               - *.streamlit.app
-            """)
+            st.error(f"Firebase Initialization Error: {str(e)}")
             st.stop()
 
 initialize_firebase()
@@ -58,9 +41,18 @@ def get_current_user():
     return st.session_state.get('auth_user')
 
 def firebase_auth_component():
-    firebase_config = st.secrets["firebase_config"]
+    firebase_config = {
+        "apiKey": st.secrets["firebase_config"]["apiKey"],
+        "authDomain": st.secrets["firebase_config"]["authDomain"],
+        "projectId": st.secrets["firebase_config"]["projectId"],
+        "storageBucket": st.secrets["firebase_config"]["storageBucket"],
+        "messagingSenderId": st.secrets["firebase_config"]["messagingSenderId"],
+        "appId": st.secrets["firebase_config"]["appId"],
+        "measurementId": st.secrets["firebase_config"]["measurementId"]
+    }
     
     auth_js = f"""
+    <!-- Firebase Auth Scripts -->
     <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-auth-compat.js"></script>
     <script>
@@ -123,188 +115,16 @@ def firebase_auth_component():
     
     html(auth_html, height=100)
 
+# Rest of your application code (career assistant functionality) #
+# ... (keep your existing career assistant implementation here) ... #
+
 # Authentication Check ========================================================
 if not get_current_user():
     st.set_page_config(page_title="Login - Career Assistant", layout="centered")
     st.title("🔐 Secure Career Assistant Login")
-    
-    st.markdown("""
-        <div style='
-            text-align: center; 
-            padding: 2rem; 
-            border-radius: 10px; 
-            background: #f8f9fa;
-            margin: 2rem 0;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        '>
-            <h3 style='color: #2c3e50; margin-bottom: 1rem;'>Enterprise-Grade Security</h3>
-            <div style='
-                display: flex;
-                justify-content: center;
-                gap: 1rem;
-                margin-bottom: 1.5rem;
-            '>
-                <div style='padding: 0.5rem 1rem; background: #e3f2fd; border-radius: 5px;'>
-                    🔒 AES-256 Encryption
-                </div>
-                <div style='padding: 0.5rem 1rem; background: #e3f2fd; border-radius: 5px;'>
-                    🔑 OAuth 2.0
-                </div>
-            </div>
-            <p style='color: #7f8c8d; font-size: 0.9rem;'>
-                Your data is protected with bank-level security measures
-            </p>
-        </div>
-    """, unsafe_allow_html=True)
-    
     firebase_auth_component()
-    
-    # Auth callback handler
-    html("""
-    <script>
-        window.addEventListener('message', async (event) => {
-            if (event.data.type === 'FIREBASE_AUTH') {
-                const user = event.data.user;
-                
-                await fetch('/_stcore/set-session-data', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        key: 'auth_user',
-                        value: user
-                    })
-                });
-                
-                window.location.reload();
-            }
-            
-            if (event.data.type === 'FIREBASE_AUTH_ERROR') {
-                console.error('Auth error:', event.data.error);
-            }
-        });
-    </script>
-    """)
-    
-    st.markdown("---")
-    st.info("""
-        ℹ️ **Security Notice**  
-        - All communications are encrypted with TLS 1.3  
-        - Session tokens automatically expire after 1 hour  
-        - No personal data is stored permanently
-    """)
     st.stop()
-
-# Main Application ============================================================
-st.set_page_config(page_title="💬 AI Career Assistant", layout="wide")
-st.title("💬 AI Career Assistant")
-
-# User Session Management -----------------------------------------------------
-def handle_logout():
-    try:
-        auth.revoke_refresh_tokens(get_current_user()['uid'])
-    except Exception as e:
-        st.error(f"Logout error: {str(e)}")
-    del st.session_state.auth_user
-    st.rerun()
-
-# Sidebar User Profile --------------------------------------------------------
-with st.sidebar:
-    user = get_current_user()
-    
-    st.markdown(f"""
-        <div style='
-            padding: 1.5rem;
-            background: #ffffff;
-            border-radius: 10px;
-            margin: 1rem 0;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        '>
-            <div style='
-                display: flex;
-                align-items: center;
-                gap: 1rem;
-                margin-bottom: 1rem;
-            '>
-                <img src="{user['photoURL']}" 
-                     style='
-                         width: 48px;
-                         height: 48px;
-                         border-radius: 50%;
-                         object-fit: cover;
-                     '>
-                <div>
-                    <h4 style='margin: 0; color: #2c3e50;'>{user['name']}</h4>
-                    <small style='color: #7f8c8d;'>{user['email']}</small>
-                </div>
-            </div>
-            <div style='
-                display: flex;
-                gap: 0.5rem;
-                justify-content: space-between;
-            '>
-                <button onclick="window.parent.postMessage({{
-                    type: 'FIREBASE_AUTH_LOGOUT'
-                }}, '*')" 
-                style='
-                    flex: 1;
-                    background: #f8f9fa;
-                    border: 1px solid #dee2e6;
-                    color: #2c3e50;
-                    padding: 8px;
-                    border-radius: 6px;
-                    cursor: pointer;
-                    transition: all 0.2s;
-                '>
-                    🔄 Refresh Session
-                </button>
-                <button onclick="handleLogout()" 
-                style='
-                    flex: 1;
-                    background: #fff0f0;
-                    border: 1px solid #ffcccc;
-                    color: #dc3545;
-                    padding: 8px;
-                    border-radius: 6px;
-                    cursor: pointer;
-                    transition: all 0.2s;
-                '>
-                    🚪 Logout
-                </button>
-            </div>
-        </div>
-        
-        <script>
-            function handleLogout() {{
-                window.parent.postMessage({{
-                    type: 'FIREBASE_AUTH_LOGOUT'
-                }}, '*');
-                
-                fetch('/_stcore/set-session-data', {{
-                    method: 'POST',
-                    headers: {{
-                        'Content-Type': 'application/json',
-                    }},
-                    body: JSON.stringify({{
-                        key: 'auth_user',
-                        value: null
-                    }})
-                }}).then(() => window.location.reload());
-            }}
-        </script>
-    """, unsafe_allow_html=True)
-
-# Original Career Assistant Functionality --------------------------------------
-# ... (Keep your existing career assistant code here) ...
-
-# Security Handlers ===========================================================
-html("""
-<script>
-    window.addEventListener('message', (event) => {
-        if (event.data.type === 'FIREBASE_AUTH_LOGOUT') {
-            firebase.auth().signOut();
-        }
-    });
-</script>
-""")
+else:
+    st.set_page_config(page_title="💬 AI Career Assistant", layout="wide")
+    st.title("💬 AI Career Assistant")
+    # Main application content #

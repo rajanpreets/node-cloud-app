@@ -57,8 +57,96 @@ except Exception as e:
     st.error(f"❌ Model initialization failed: {str(e)}")
     st.stop()
 
-# LangGraph nodes and workflow (keep existing implementation)
-# ... [Keep all the existing LangGraph node definitions and workflow setup] ...
+# Define LangGraph nodes
+def retrieve_jobs(state: AgentState):
+    try:
+        query_embedding = embedding_model.encode(state["resume_text"]).tolist()
+        results = index.query(
+            vector=query_embedding,
+            top_k=5,
+            include_metadata=True,
+            namespace="jobs"
+        )
+        jobs = [match.metadata for match in results.matches if match.metadata]
+        return {"jobs": jobs, "history": ["Retrieved jobs from Pinecone"]}
+    except Exception as e:
+        return {"error": str(e), "history": ["Job retrieval failed"]}
+
+def generate_analysis(state: AgentState):
+    if not state.get("jobs"):
+        return {"current_response": "No jobs found for analysis", "history": ["Skipped analysis"]}
+    
+    job_texts = "\n\n".join([f"Title: {job.get('Job Title')}\nCompany: {job.get('Company Name')}\nDescription: {job.get('Job Description', '')[:300]}" 
+                          for job in state["jobs"]])
+    
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", "You're a career advisor. Analyze these jobs and give 3-5 brief recommendations:"),
+        ("human", f"Resume content will follow this message. Here are matching jobs:\n\n{job_texts}\n\nProvide concise, actionable advice for the applicant.")
+    ])
+    
+    try:
+        analysis = llm.invoke(prompt.format_messages()).content
+        return {"current_response": analysis, "history": ["Generated career analysis"]}
+    except Exception as e:
+        return {"error": str(e), "history": ["Analysis generation failed"]}
+
+def tailor_resume(state: AgentState):
+    if not state.get("selected_job"):
+        return {"current_response": "No job selected for tailoring", "history": ["Skipped tailoring"]}
+    
+    try:
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", "You're a professional resume writer. Tailor this resume for the specific job."),
+            ("human", f"Job Title: {state['selected_job']['Job Title']}\nJob Description:\n{state['selected_job'].get('Job Description', '')}\n\nResume:\n{state['resume_text']}\n\nProvide specific suggestions to modify the resume. Focus on matching keywords and required skills.")
+        ])
+        response = llm.invoke(prompt.format_messages())
+        return {"current_response": response.content, "history": ["Generated tailored resume suggestions"]}
+    except Exception as e:
+        return {"error": str(e), "history": ["Tailoring failed"]}
+
+# Build LangGraph workflow
+workflow = StateGraph(AgentState)
+workflow.add_node("retrieve_jobs", retrieve_jobs)
+workflow.add_node("generate_analysis", generate_analysis)
+workflow.add_node("tailor_resume", tailor_resume)
+
+workflow.set_entry_point("retrieve_jobs")
+workflow.add_edge("retrieve_jobs", "generate_analysis")
+workflow.add_conditional_edges(
+    "generate_analysis",
+    lambda x: "tailor_resume" if x.get("selected_job") else END,
+    {"tailor_resume": "tailor_resume", END: END}
+)
+workflow.add_edge("tailor_resume", END)
+app = workflow.compile()
+
+# Streamlit UI components
+def display_jobs_table(jobs):
+    if not jobs:
+        st.warning("No jobs found")
+        return
+    
+    try:
+        jobs_df = pd.DataFrame([{
+            "Title": job.get("Job Title", "N/A"),
+            "Company": job.get("Company Name", "N/A"),
+            "Location": job.get("Location", "N/A"),
+            "Description": (job.get("Job Description", "")[:150] + "...") if job.get("Job Description") else "N/A",
+            "Link": job.get("Job Link", "#")
+        } for job in jobs])
+        
+        st.markdown("### 🗃 Matching Jobs")
+        st.dataframe(
+            jobs_df,
+            column_config={
+                "Link": st.column_config.LinkColumn("Apply Now"),
+                "Description": "Job Summary"
+            },
+            hide_index=True,
+            use_container_width=True
+        )
+    except Exception as e:
+        st.error(f"Error displaying jobs: {str(e)}")
 
 # Authentication UI Component
 def authentication_ui():

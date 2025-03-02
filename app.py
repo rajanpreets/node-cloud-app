@@ -126,8 +126,63 @@ with st.sidebar:
             "selected_job": None
         }
         st.rerun()
-
     st.write(f"Logged in as: {st.session_state.username}")
 
-# Main application UI (keep existing implementation)
-# ... [Keep all the existing main UI code] ...
+# Main Application Functionality
+def main_application():
+    with st.chat_message("assistant"):
+        st.write("Hi! I'm your AI career assistant. Paste your resume below and I'll help you find relevant jobs!")
+
+    resume_text = st.chat_input("Paste your resume text here...")
+
+    if resume_text:
+        st.session_state.agent_state.update({
+            "resume_text": resume_text,
+            "selected_job": None  # Reset selected job on new input
+        })
+        
+        # Execute main workflow
+        for event in app.stream(st.session_state.agent_state):
+            for key, value in event.items():
+                st.session_state.agent_state.update(value)
+        
+        st.markdown("---")
+        with st.chat_message("assistant"):
+            st.markdown("### 🎯 Here's what I found for you:")
+            display_jobs_table(st.session_state.agent_state["jobs"])
+            
+            st.markdown("---")
+            st.markdown("### 📊 Career Advisor Analysis")
+            st.write(st.session_state.agent_state["current_response"])
+
+    # Tailoring interface
+    if st.session_state.agent_state.get("jobs"):
+        st.markdown("---")
+        st.markdown("### ✨ Resume Tailoring")
+        
+        job_titles = [job.get("Job Title", "Unknown Position") for job in st.session_state.agent_state["jobs"]]
+        selected_title = st.selectbox("Which job would you like to tailor your resume for?", job_titles)
+        
+        if selected_title:
+            selected_job = next(
+                job for job in st.session_state.agent_state["jobs"] 
+                if job.get("Job Title") == selected_title
+            )
+            st.session_state.agent_state["selected_job"] = selected_job
+            
+            if st.button("Generate Tailored Resume Suggestions"):
+                # Directly invoke tailoring without re-running whole workflow
+                result = tailor_resume(st.session_state.agent_state)
+                st.session_state.agent_state.update(result)
+                
+                st.markdown("### 📝 Customization Suggestions")
+                st.write(st.session_state.agent_state["current_response"])
+
+    # Debug section
+    if st.session_state.agent_state.get('jobs'):
+        with st.expander("🔧 Debug Information"):
+            st.write("Agent State:", st.session_state.agent_state)
+            st.write("History:", st.session_state.agent_state.get("history", []))
+
+# Run main application
+main_application()

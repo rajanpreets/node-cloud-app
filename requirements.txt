@@ -1,3 +1,5 @@
+psycopg2-binary
+bcrypt
 firebase-admin
 pyrebase4>=4.6.0
 python-jose[cryptography]>=3.3.0

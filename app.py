@@ -166,4 +166,3 @@ if st.session_state.get('jobs'):
     with st.expander("🔧 Debug Information"):
         st.write("Raw job data:", st.session_state.jobs)
         st.write("Resume text length:", len(st.session_state.get('resume_text', '')))
-        

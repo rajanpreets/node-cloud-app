@@ -24,12 +24,17 @@ else:
 st.markdown("""
     <style>
         .main {background-color: #f8f9fa;}
-        .stButton>button {background-color: #2c3e50; color: white; border-radius: 4px;}
-        .stTextInput>div>div>input {border: 1px solid #2c3e50; border-radius: 4px;}
-        .stSelectbox>div>div>select {border: 1px solid #2c3e50;}
-        .header {color: #2c3e50; font-family: 'Helvetica Neue', sans-serif;}
-        .sidebar .sidebar-content {background-color: #ecf0f1;}
-        .dataframe {box-shadow: 0 1px 3px rgba(0,0,0,0.12);}
+        .stButton>button {background-color: #2c3e50; color: white; border-radius: 4px;
+            padding: 0.5rem 1rem; transition: all 0.3s ease;}
+        .stButton>button:hover {background-color: #1a2b3c; transform: translateY(-1px);}
+        .stTextInput>div>div>input {border: 1px solid #2c3e50; border-radius: 4px;
+            padding: 0.5rem;}
+        .stSelectbox>div>div>select {border: 1px solid #2c3e50; border-radius: 4px;}
+        .header {color: #2c3e50; font-family: 'Helvetica Neue', sans-serif;
+            margin-bottom: 2rem;}
+        .sidebar .sidebar-content {background-color: #ecf0f1; padding: 1rem;}
+        .dataframe {box-shadow: 0 1px 3px rgba(0,0,0,0.12); border-radius: 8px;}
+        .stSpinner>div>div {border-top-color: #2c3e50;}
     </style>
 """, unsafe_allow_html=True)
 
@@ -55,16 +60,22 @@ class AgentState(TypedDict):
 def init_pinecone():
     try:
         pc = Pinecone(api_key=st.secrets.PINECONE_API_KEY)
-        if st.secrets.PINECONE_INDEX_NAME not in pc.list_indexes().names():
+        index_name = st.secrets.PINECONE_INDEX_NAME
+        
+        if index_name not in pc.list_indexes().names():
             pc.create_index(
-                name=st.secrets.PINECONE_INDEX_NAME,
+                name=index_name,
                 dimension=int(st.secrets.EMBEDDING_DIMENSION),
                 metric="cosine",
-                spec=ServerlessSpec(cloud="aws", region=st.secrets.PINECONE_ENV)
+                spec=ServerlessSpec(
+                    cloud="aws",
+                    region=st.secrets.PINECONE_ENV
+                )
             )
-            while not pc.describe_index(st.secrets.PINECONE_INDEX_NAME).status['ready']:
+            while not pc.describe_index(index_name).status['ready']:
                 time.sleep(1)
-        return pc.Index(st.secrets.PINECONE_INDEX_NAME)
+        
+        return pc.Index(index_name)
     except Exception as e:
         st.error(f"Pinecone initialization failed: {str(e)}")
         st.stop()
@@ -74,7 +85,11 @@ index = init_pinecone()
 # Initialize models
 try:
     embedding_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-    llm = ChatGroq(model="llama3-8b-8192", temperature=0, api_key=st.secrets.GROQ_API_KEY)
+    llm = ChatGroq(
+        model="llama3-8b-8192",
+        temperature=0,
+        api_key=st.secrets.GROQ_API_KEY
+    )
 except Exception as e:
     st.error(f"Model initialization failed: {str(e)}")
     st.stop()
@@ -100,7 +115,8 @@ def generate_analysis(state: AgentState):
     
     job_texts = "\n\n".join([
         f"Title: {job.get('Job Title')}\nCompany: {job.get('Company Name')}\nDescription: {job.get('Job Description', '')[:300]}"
-        for job in state["jobs"]])
+        for job in state["jobs"]
+    )
     
     prompt = ChatPromptTemplate.from_messages([
         ("system", "Analyze these job opportunities and provide career development recommendations:"),
@@ -143,16 +159,28 @@ workflow.add_conditional_edges(
 workflow.add_edge("tailor_resume", END)
 app = workflow.compile()
 
-# Context manager for event loop
+# Enhanced event loop management
 @contextmanager
 def st_redirect():
-    orig_loop = asyncio.get_event_loop()
     try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        orig_policy = asyncio.get_event_loop_policy()
+        orig_loop = orig_policy.get_event_loop()
+    except RuntimeError:
+        orig_loop = None
+    
+    new_loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(new_loop)
+    
+    try:
         yield
     finally:
-        asyncio.set_event_loop(orig_loop)
+        try:
+            new_loop.close()
+        except RuntimeError:
+            pass
+        
+        if orig_loop and not orig_loop.is_closed():
+            asyncio.set_event_loop(orig_loop)
 
 # Professional UI Components
 def display_jobs_table(jobs):
@@ -302,5 +330,8 @@ def display_analysis_results():
                     st.write(st.session_state.agent_state["current_response"])
 
 if __name__ == "__main__":
-    with st_redirect():
-        main_interface()
+    async def main():
+        with st_redirect():
+            main_interface()
+    
+    asyncio.run(main())

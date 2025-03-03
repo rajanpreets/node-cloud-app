@@ -1,6 +1,7 @@
 import requests
 import streamlit as st
 import logging
+from datetime import datetime, timedelta
 from typing import Optional, Dict
 
 logger = logging.getLogger(__name__)
@@ -21,19 +22,16 @@ class PayPalClient:
         }
         
     def get_access_token(self) -> str:
+        """Get or refresh access token"""
         if self.access_token and self.token_expiry and datetime.now() < self.token_expiry:
             return self.access_token
             
-        auth = (self.client_id, self.client_secret)
-        headers = {"Content-Type": "application/x-www-form-urlencoded"}
-        data = {"grant_type": "client_credentials"}
-        
         try:
             response = requests.post(
                 f"{self.base_url}/v1/oauth2/token",
-                auth=auth,
-                headers=headers,
-                data=data,
+                auth=(self.client_id, self.client_secret),
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                data={"grant_type": "client_credentials"},
                 timeout=10
             )
             response.raise_for_status()
@@ -46,6 +44,7 @@ class PayPalClient:
             raise
         
     def create_order(self, amount: float) -> Optional[Dict]:
+        """Create PayPal payment order"""
         try:
             headers = self._get_auth_headers()
             payload = {
@@ -78,21 +77,8 @@ class PayPalClient:
             logger.error(f"Order creation failed: {str(e)}")
             return None
         
-    def capture_payment(self, order_id: str) -> Optional[Dict]:
-        try:
-            headers = self._get_auth_headers()
-            response = requests.post(
-                f"{self.base_url}/v2/checkout/orders/{order_id}/capture",
-                headers=headers,
-                timeout=15
-            )
-            response.raise_for_status()
-            return response.json()
-        except Exception as e:
-            logger.error(f"Payment capture failed: {str(e)}")
-            return None
-        
     def verify_payment(self, order_id: str) -> bool:
+        """Verify payment completion"""
         try:
             headers = self._get_auth_headers()
             response = requests.get(
@@ -102,11 +88,8 @@ class PayPalClient:
             )
             response.raise_for_status()
             data = response.json()
-            
-            if data["status"] == "COMPLETED":
-                amount = float(data["purchase_units"][0]["amount"]["value"])
-                return amount >= 10.00
-            return False
+            return data.get("status") == "COMPLETED" and \
+                   float(data["purchase_units"][0]["amount"]["value"]) >= 10.00
         except Exception as e:
             logger.error(f"Payment verification failed: {str(e)}")
             return False

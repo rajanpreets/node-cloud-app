@@ -1,23 +1,24 @@
 import psycopg2
-from contextlib import contextmanager
 import bcrypt
-import os
+import streamlit as st
+from contextlib import contextmanager
 import logging
 from typing import Optional, Tuple
 
 # Configure logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 @contextmanager
 def get_db_connection():
-    """Get database connection with environment fallback"""
+    """Get database connection using Streamlit secrets"""
     try:
         conn = psycopg2.connect(
-            dbname=os.getenv("DB_NAME"),
-            user=os.getenv("DB_USER"),
-            password=os.getenv("DB_PASSWORD"),
-            host=os.getenv("DB_HOST"),
-            port=os.getenv("DB_PORT", "5432")
+            dbname=st.secrets.db.name,
+            user=st.secrets.db.user,
+            password=st.secrets.db.password,
+            host=st.secrets.db.host,
+            port=st.secrets.db.port
         )
         conn.autocommit = False
         try:
@@ -25,7 +26,7 @@ def get_db_connection():
         finally:
             conn.close()
     except Exception as e:
-        logger.error(f"Connection failed: {str(e)}")
+        logger.error(f"Database connection failed: {str(e)}")
         raise
 
 def init_db():
@@ -33,7 +34,6 @@ def init_db():
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                # Users table
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS users (
                         id SERIAL PRIMARY KEY,
@@ -44,27 +44,19 @@ def init_db():
                         last_login TIMESTAMP
                     );
                 """)
-                # Sessions table
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS user_sessions (
-                        session_id VARCHAR(40) PRIMARY KEY,
-                        user_id INTEGER REFERENCES users(id),
-                        expires_at TIMESTAMP NOT NULL
-                    );
-                """)
                 conn.commit()
     except Exception as e:
-        logger.error(f"Init failed: {str(e)}")
+        logger.error(f"Database initialization failed: {str(e)}")
         raise
 
 def create_user(username: str, password: str, email: str) -> int:
     """Create new user with validation"""
     if len(password) < 8:
         raise ValueError("Password must be at least 8 characters")
-        
-    with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            try:
+    
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
                 password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
                 cur.execute("""
                     INSERT INTO users (username, password_hash, email)
@@ -74,13 +66,11 @@ def create_user(username: str, password: str, email: str) -> int:
                 user_id = cur.fetchone()[0]
                 conn.commit()
                 return user_id
-            except psycopg2.IntegrityError:
-                conn.rollback()
-                raise ValueError("Username already exists")
-            except Exception as e:
-                conn.rollback()
-                logger.error(f"Create user failed: {str(e)}")
-                raise RuntimeError("Registration failed")
+    except psycopg2.IntegrityError:
+        raise ValueError("Username already exists")
+    except Exception as e:
+        logger.error(f"User creation failed: {str(e)}")
+        raise RuntimeError("Registration failed")
 
 def get_user_by_username(username: str) -> Optional[Tuple]:
     """Retrieve user by username"""
@@ -94,7 +84,7 @@ def get_user_by_username(username: str) -> Optional[Tuple]:
                 """, (username,))
                 return cur.fetchone()
     except Exception as e:
-        logger.error(f"Get user failed: {str(e)}")
+        logger.error(f"User retrieval failed: {str(e)}")
         return None
 
 def verify_password(stored_hash: str, password: str) -> bool:
@@ -102,7 +92,7 @@ def verify_password(stored_hash: str, password: str) -> bool:
     try:
         return bcrypt.checkpw(password.encode(), stored_hash.encode())
     except Exception as e:
-        logger.error(f"Password verify failed: {str(e)}")
+        logger.error(f"Password verification failed: {str(e)}")
         return False
 
 def update_last_login(username: str):
@@ -117,5 +107,5 @@ def update_last_login(username: str):
                 """, (username,))
                 conn.commit()
     except Exception as e:
-        logger.error(f"Update last login failed: {str(e)}")
+        logger.error(f"Login update failed: {str(e)}")
         raise

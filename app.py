@@ -27,35 +27,7 @@ logger = logging.getLogger(__name__)
 init_db()
 paypal = PayPalClient()
 
-# Custom CSS
-st.markdown("""
-<style>
-    .main { background-color: #f8f9fa; }
-    .payment-button {
-        background-color: #003087 !important;
-        color: white !important;
-        border-radius: 5px;
-        padding: 0.8rem 1.5rem;
-        text-align: center;
-        display: block;
-        margin: 1rem auto;
-        width: fit-content;
-    }
-    .subscription-status {
-        padding: 1rem;
-        border-radius: 5px;
-        margin: 1rem 0;
-    }
-    .subscription-active {
-        background-color: #e8f5e9;
-        border: 1px solid #2e7d32;
-    }
-    .subscription-inactive {
-        background-color: #ffebee;
-        border: 1px solid #c62828;
-    }
-</style>
-""", unsafe_allow_html=True)
+# Custom CSS (keep your existing styles)
 
 def handle_payment_callback():
     """Handle PayPal payment redirects"""
@@ -65,8 +37,19 @@ def handle_payment_callback():
             order_id = params['token']
             if paypal.verify_payment(order_id) and verify_payment(order_id):
                 st.success("✅ Payment verified! Account activated.")
-                st.session_state.registration_success = True
-                st.rerun()
+                # Automatically log in the user
+                if 'registration_data' in st.session_state:
+                    user_data = st.session_state.registration_data
+                    try:
+                        user = get_user_by_username(user_data['username'])
+                        if user and is_subscription_active(user_data['username']):
+                            st.session_state.update({
+                                "logged_in": True,
+                                "username": user_data['username']
+                            })
+                            st.rerun()
+                    except Exception as e:
+                        logger.error(f"Auto-login failed: {str(e)}")
             else:
                 st.error("❌ Payment verification failed")
         except Exception as e:
@@ -111,22 +94,32 @@ def authentication_ui():
             new_password = st.text_input("New Password", type="password")
             if st.form_submit_button("Create Account"):
                 try:
+                    # Create PayPal order first
                     order = paypal.create_order(10.00)
                     if not order:
                         raise ValueError("Failed to create payment order")
                     
+                    # Create user in database with pending status
+                    create_user(
+                        new_username,
+                        new_password,
+                        new_email,
+                        order['id']  # Use PayPal order ID as payment_id
+                    )
+                    
+                    # Store registration data in session
+                    st.session_state.registration_data = {
+                        'username': new_username,
+                        'email': new_email
+                    }
+                    
+                    # Get PayPal approval URL
                     approval_url = next(
                         link['href'] for link in order['links'] 
                         if link['rel'] == 'approve'
                     )
                     
-                    st.session_state.registration_data = {
-                        'username': new_username,
-                        'email': new_email,
-                        'password': new_password,
-                        'payment_id': order['id']
-                    }
-                    
+                    # Show payment button
                     st.markdown(
                         f"<a href='{approval_url}' class='payment-button' target='_blank'>"
                         "🔒 Complete Secure $10 Payment via PayPal</a>",
@@ -136,43 +129,7 @@ def authentication_ui():
                     logger.error(f"Registration error: {str(e)}")
                     st.error(f"Registration failed: {str(e)}")
 
-def main_application():
-    """Main application interface"""
-    # Initialize services
-    pc = Pinecone(api_key=st.secrets["PINECONE_API_KEY"])
-    index = pc.Index("rajan")
-    embedding_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-    llm = ChatGroq(model="llama3-8b-8192", temperature=0, api_key=st.secrets["GROQ_API_KEY"])
-    
-    # Existing application logic
-    # ... [Keep your original application workflow here] ...
-
-def main():
-    """Main application flow"""
-    if 'logged_in' not in st.session_state:
-        st.session_state.update({
-            "logged_in": False,
-            "agent_state": {
-                "resume_text": "",
-                "jobs": [],
-                "history": [],
-                "current_response": "",
-                "selected_job": None
-            }
-        })
-
-    if not st.session_state.logged_in:
-        authentication_ui()
-        st.stop()
-
-    st.title("💼 Premium Career Assistant")
-    with st.sidebar:
-        if st.button("Logout"):
-            st.session_state.clear()
-            st.rerun()
-        st.write(f"Welcome, {st.session_state.username}")
-    
-    main_application()
+# Rest of your application code (main_application and other functions)
 
 if __name__ == "__main__":
     main()

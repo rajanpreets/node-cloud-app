@@ -132,4 +132,4 @@ def authentication_ui():
 # Rest of your application code (main_application and other functions)
 
 if __name__ == "__main__":
-    main()
+main()

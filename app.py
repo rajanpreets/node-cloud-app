@@ -100,7 +100,7 @@ def generate_analysis(state: AgentState):
     
     job_texts = "\n\n".join([
         f"Title: {job.get('Job Title')}\nCompany: {job.get('Company Name')}\nDescription: {job.get('Job Description', '')[:300]}"
-        for job in state["jobs"])
+        for job in state["jobs"]])
     
     prompt = ChatPromptTemplate.from_messages([
         ("system", "Analyze these job opportunities and provide career development recommendations:"),

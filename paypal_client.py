@@ -1,7 +1,7 @@
 import requests
 import streamlit as st
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta  # Added datetime import
 from typing import Optional, Dict
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,6 @@ class PayPalClient:
         }
         
     def get_access_token(self) -> str:
-        """Get or refresh access token"""
         if self.access_token and self.token_expiry and datetime.now() < self.token_expiry:
             return self.access_token
             
@@ -44,7 +43,6 @@ class PayPalClient:
             raise
         
     def create_order(self, amount: float) -> Optional[Dict]:
-        """Create PayPal payment order"""
         try:
             headers = self._get_auth_headers()
             payload = {
@@ -78,7 +76,6 @@ class PayPalClient:
             return None
         
     def verify_payment(self, order_id: str) -> bool:
-        """Verify payment completion"""
         try:
             headers = self._get_auth_headers()
             response = requests.get(

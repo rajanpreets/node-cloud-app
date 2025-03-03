@@ -1,7 +1,4 @@
-import asyncio
-import sys
 import streamlit as st
-import psycopg2
 import pandas as pd
 from pinecone import Pinecone, ServerlessSpec
 from sentence_transformers import SentenceTransformer
@@ -11,42 +8,40 @@ from langchain_core.prompts import ChatPromptTemplate
 from typing import TypedDict, List, Annotated
 import operator
 import time
-from contextlib import contextmanager
 from database import init_db, create_user, get_user_by_username, verify_password, update_last_login
 
-# Asyncio event loop configuration
-if sys.platform == "win32":
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-else:
-    asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
+# Set page config first (must be first Streamlit command)
+st.set_page_config(page_title="💬 AI Career Assistant", layout="wide")
 
-# Custom professional styling
+# Custom CSS
 st.markdown("""
-    <style>
-        .main {background-color: #f8f9fa;}
-        .stButton>button {background-color: #2c3e50; color: white; border-radius: 4px;
-            padding: 0.5rem 1rem; transition: all 0.3s ease;}
-        .stButton>button:hover {background-color: #1a2b3c; transform: translateY(-1px);}
-        .stTextInput>div>div>input {border: 1px solid #2c3e50; border-radius: 4px;
-            padding: 0.5rem;}
-        .stSelectbox>div>div>select {border: 1px solid #2c3e50; border-radius: 4px;}
-        .header {color: #2c3e50; font-family: 'Helvetica Neue', sans-serif;
-            margin-bottom: 2rem;}
-        .sidebar .sidebar-content {background-color: #ecf0f1; padding: 1rem;}
-        .dataframe {box-shadow: 0 1px 3px rgba(0,0,0,0.12); border-radius: 8px;}
-        .stSpinner>div>div {border-top-color: #2c3e50;}
-    </style>
+<style>
+    .main { background-color: #f8f9fa; }
+    .stButton>button { 
+        background-color: #4a4e69; 
+        color: white; 
+        border-radius: 4px; 
+        padding: 0.5rem 1rem;
+    }
+    .stTextInput input, .stTextArea textarea {
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+    }
+    .stDataFrame { 
+        border: 1px solid #dee2e6; 
+        border-radius: 4px; 
+    }
+</style>
 """, unsafe_allow_html=True)
 
-# Initialize database with secrets
-db_config = {
-    'name': st.secrets.DB_NAME,
-    'user': st.secrets.DB_USER,
-    'password': st.secrets.DB_PASSWORD,
-    'host': st.secrets.DB_HOST,
-    'port': st.secrets.DB_PORT
-}
-init_db(db_config)
+# Initialize database
+init_db()
+
+# Get secrets from Streamlit
+GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
+PINECONE_API_KEY = st.secrets["PINECONE_API_KEY"]
+INDEX_NAME = "rajan"
+EMBEDDING_DIMENSION = 384
 
 # Define State for LangGraph
 class AgentState(TypedDict):
@@ -59,25 +54,19 @@ class AgentState(TypedDict):
 # Initialize Pinecone
 def init_pinecone():
     try:
-        pc = Pinecone(api_key=st.secrets.PINECONE_API_KEY)
-        index_name = st.secrets.PINECONE_INDEX_NAME
-        
-        if index_name not in pc.list_indexes().names():
+        pc = Pinecone(api_key=PINECONE_API_KEY)
+        if INDEX_NAME not in pc.list_indexes().names():
             pc.create_index(
-                name=index_name,
-                dimension=int(st.secrets.EMBEDDING_DIMENSION),
+                name=INDEX_NAME,
+                dimension=EMBEDDING_DIMENSION,
                 metric="cosine",
-                spec=ServerlessSpec(
-                    cloud="aws",
-                    region=st.secrets.PINECONE_ENV
-                )
+                spec=ServerlessSpec(cloud="aws", region="us-west-2")
             )
-            while not pc.describe_index(index_name).status['ready']:
+            while not pc.describe_index(INDEX_NAME).status['ready']:
                 time.sleep(1)
-        
-        return pc.Index(index_name)
+        return pc.Index(INDEX_NAME)
     except Exception as e:
-        st.error(f"Pinecone initialization failed: {str(e)}")
+        st.error(f"❌ Pinecone initialization failed: {str(e)}")
         st.stop()
 
 index = init_pinecone()
@@ -85,16 +74,12 @@ index = init_pinecone()
 # Initialize models
 try:
     embedding_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-    llm = ChatGroq(
-        model="llama3-8b-8192",
-        temperature=0,
-        api_key=st.secrets.GROQ_API_KEY
-    )
+    llm = ChatGroq(model="llama3-8b-8192", temperature=0, api_key=GROQ_API_KEY)
 except Exception as e:
-    st.error(f"Model initialization failed: {str(e)}")
+    st.error(f"❌ Model initialization failed: {str(e)}")
     st.stop()
 
-# LangGraph nodes
+# Define LangGraph nodes (remain unchanged)
 def retrieve_jobs(state: AgentState):
     try:
         query_embedding = embedding_model.encode(state["resume_text"]).tolist()
@@ -113,14 +98,12 @@ def generate_analysis(state: AgentState):
     if not state.get("jobs"):
         return {"current_response": "No jobs found for analysis", "history": ["Skipped analysis"]}
     
-    job_texts = "\n\n".join([
-        f"Title: {job.get('Job Title')}\nCompany: {job.get('Company Name')}\nDescription: {job.get('Job Description', '')[:300]}"
-        for job in state["jobs"]
-    )
+    job_texts = "\n\n".join([f"Title: {job.get('Job Title')}\nCompany: {job.get('Company Name')}\nDescription: {job.get('Job Description', '')[:300]}" 
+                      for job in state["jobs"]])
     
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "Analyze these job opportunities and provide career development recommendations:"),
-        ("human", f"Resume content:\n{state['resume_text']}\n\nMatching positions:\n{job_texts}")
+        ("system", "You're a career advisor. Analyze these jobs and give 3-5 brief recommendations:"),
+        ("human", f"Resume content will follow this message. Here are matching jobs:\n\n{job_texts}\n\nProvide concise, actionable advice for the applicant.")
     ])
     
     try:
@@ -135,15 +118,15 @@ def tailor_resume(state: AgentState):
     
     try:
         prompt = ChatPromptTemplate.from_messages([
-            ("system", "Provide resume customization suggestions for this position:"),
-            ("human", f"Position: {state['selected_job']['Job Title']}\nRequirements:\n{state['selected_job'].get('Job Description', '')}\n\nResume Content:\n{state['resume_text']}")
+            ("system", "You're a professional resume writer. Tailor this resume for the specific job."),
+            ("human", f"Job Title: {state['selected_job']['Job Title']}\nJob Description:\n{state['selected_job'].get('Job Description', '')}\n\nResume:\n{state['resume_text']}\n\nProvide specific suggestions to modify the resume. Focus on matching keywords and required skills.")
         ])
         response = llm.invoke(prompt.format_messages())
-        return {"current_response": response.content, "history": ["Generated resume suggestions"]}
+        return {"current_response": response.content, "history": ["Generated tailored resume suggestions"]}
     except Exception as e:
         return {"error": str(e), "history": ["Tailoring failed"]}
 
-# Build workflow
+# Build LangGraph workflow (remain unchanged)
 workflow = StateGraph(AgentState)
 workflow.add_node("retrieve_jobs", retrieve_jobs)
 workflow.add_node("generate_analysis", generate_analysis)
@@ -159,99 +142,90 @@ workflow.add_conditional_edges(
 workflow.add_edge("tailor_resume", END)
 app = workflow.compile()
 
-# Enhanced event loop management
-@contextmanager
-def st_redirect():
-    try:
-        orig_policy = asyncio.get_event_loop_policy()
-        orig_loop = orig_policy.get_event_loop()
-    except RuntimeError:
-        orig_loop = None
-    
-    new_loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(new_loop)
-    
-    try:
-        yield
-    finally:
-        try:
-            new_loop.close()
-        except RuntimeError:
-            pass
-        
-        if orig_loop and not orig_loop.is_closed():
-            asyncio.set_event_loop(orig_loop)
-
-# Professional UI Components
+# Streamlit UI components (remain unchanged)
 def display_jobs_table(jobs):
     if not jobs:
-        st.warning("No matching positions found")
+        st.warning("No jobs found")
         return
     
     try:
         jobs_df = pd.DataFrame([{
-            "Title": job.get("Job Title", "Not Available"),
-            "Company": job.get("Company Name", "Not Available"),
-            "Location": job.get("Location", "Not Available"),
-            "Description": (job.get("Job Description", "")[:150] + "...") if job.get("Job Description") else "Not Available",
+            "Title": job.get("Job Title", "N/A"),
+            "Company": job.get("Company Name", "N/A"),
+            "Location": job.get("Location", "N/A"),
+            "Description": (job.get("Job Description", "")[:150] + "...") if job.get("Job Description") else "N/A",
             "Link": job.get("Job Link", "#")
         } for job in jobs])
         
-        st.markdown("#### Career Opportunity Matches")
+        st.markdown("### 🗃 Matching Jobs")
         st.dataframe(
             jobs_df,
             column_config={
-                "Link": st.column_config.LinkColumn("Application Link"),
-                "Description": "Position Summary"
+                "Link": st.column_config.LinkColumn("Apply Now"),
+                "Description": "Job Summary"
             },
             hide_index=True,
             use_container_width=True
         )
     except Exception as e:
-        st.error(f"Data display error: {str(e)}")
+        st.error(f"Error displaying jobs: {str(e)}")
 
-# Authentication UI
+# Authentication UI Component (remain unchanged)
 def authentication_ui():
-    with st.container():
-        col1, col2 = st.columns([1, 2])
-        with col1:
-            st.image("https://via.placeholder.com/150x50.png?text=CareerAI", use_column_width=True)
-        
-        with col2:
-            tab1, tab2 = st.tabs(["Secure Sign In", "New Registration"])
+    login_tab, register_tab = st.tabs(["Login", "Register"])
+    
+    with login_tab:
+        with st.form("Login"):
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            submit = st.form_submit_button("Login")
             
-            with tab1:
-                with st.form("Secure Login"):
-                    username = st.text_input("Username")
-                    password = st.text_input("Password", type="password")
-                    if st.form_submit_button("Authenticate"):
-                        user = get_user_by_username(username)
-                        if user and verify_password(user[2], password):
-                            update_last_login(username)
-                            st.session_state.logged_in = True
-                            st.session_state.username = username
-                            st.rerun()
-                        else:
-                            st.error("Invalid credentials")
+            if submit:
+                user = get_user_by_username(username)
+                if user and verify_password(user[2], password):
+                    update_last_login(username)
+                    st.session_state.logged_in = True
+                    st.session_state.username = username
+                    st.rerun()
+                else:
+                    st.error("Invalid credentials")
 
-            with tab2:
-                with st.form("New Account"):
-                    new_user = st.text_input("Create Username")
-                    new_email = st.text_input("Email Address")
-                    new_pass = st.text_input("Create Password", type="password")
-                    if st.form_submit_button("Register"):
-                        try:
-                            create_user(new_user, new_pass, new_email)
-                            st.success("Account created successfully")
-                        except Exception as e:
-                            st.error(str(e))
+    with register_tab:
+        with st.form("Register"):
+            new_username = st.text_input("New Username")
+            new_email = st.text_input("Email")
+            new_password = st.text_input("New Password", type="password")
+            submit = st.form_submit_button("Create Account")
+            
+            if submit:
+                try:
+                    create_user(new_username, new_password, new_email)
+                    st.success("Account created! Please login")
+                except Exception as e:
+                    st.error(f"Registration failed: {str(e)}")
 
-# Main Application
-def main_interface():
-    st.set_page_config(page_title="AI Career Platform", layout="wide")
-    st.markdown("<h1 class='header'>Professional Career Optimization Platform</h1>", unsafe_allow_html=True)
+# Main UI
+st.title("💬 AI Career Assistant")
 
-    if 'logged_in' not in st.session_state:
+# Initialize session state
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.agent_state = {
+        "resume_text": "",
+        "jobs": [],
+        "history": [],
+        "current_response": "",
+        "selected_job": None
+    }
+
+# Show authentication if not logged in
+if not st.session_state.logged_in:
+    authentication_ui()
+    st.stop()
+
+# Logout button
+with st.sidebar:
+    if st.button("Logout"):
         st.session_state.logged_in = False
         st.session_state.agent_state = {
             "resume_text": "",
@@ -260,78 +234,63 @@ def main_interface():
             "current_response": "",
             "selected_job": None
         }
+        st.rerun()
+    st.write(f"Logged in as: {st.session_state.username}")
 
-    if not st.session_state.logged_in:
-        authentication_ui()
-        st.stop()
+# Main Application Functionality
+def main_application():
+    with st.chat_message("assistant"):
+        st.write("Hi! I'm your AI career assistant. Paste your resume below and I'll help you find relevant jobs!")
 
-    with st.sidebar:
-        st.markdown(f"**Active Session:** {st.session_state.username}")
-        if st.button("Logout"):
-            st.session_state.logged_in = False
-            st.rerun()
+    resume_text = st.chat_input("Paste your resume text here...")
+
+    if resume_text:
+        st.session_state.agent_state.update({
+            "resume_text": resume_text,
+            "selected_job": None  # Reset selected job on new input
+        })
+        
+        # Execute main workflow
+        for event in app.stream(st.session_state.agent_state):
+            for key, value in event.items():
+                st.session_state.agent_state.update(value)
         
         st.markdown("---")
-        st.markdown("**Navigation**")
-        st.markdown("- Career Analysis\n- Resume Optimization\n- Market Insights")
+        with st.chat_message("assistant"):
+            st.markdown("### 🎯 Here's what I found for you:")
+            display_jobs_table(st.session_state.agent_state["jobs"])
+            
+            st.markdown("---")
+            st.markdown("### 📊 Career Advisor Analysis")
+            st.write(st.session_state.agent_state["current_response"])
 
-    with st.container():
-        st.markdown("### Professional Profile Analysis")
-        resume_input = st.text_area(
-            "Input Resume Content:",
-            height=250,
-            placeholder="Paste your professional resume text here..."
-        )
-        
-        if st.button("Initiate Career Analysis"):
-            if not resume_input.strip():
-                st.warning("Please input valid resume content")
-                return
-            
-            st.session_state.agent_state.update({
-                "resume_text": resume_input,
-                "selected_job": None
-            })
-            
-            with st.spinner("Analyzing career profile..."):
-                for event in app.stream(st.session_state.agent_state):
-                    for key, value in event.items():
-                        st.session_state.agent_state.update(value)
-            
-            display_analysis_results()
-
-def display_analysis_results():
-    st.markdown("---")
-    with st.expander("Career Match Report", expanded=True):
-        display_jobs_table(st.session_state.agent_state["jobs"])
-        
-        st.markdown("### Professional Development Recommendations")
-        st.write(st.session_state.agent_state["current_response"])
-    
+    # Tailoring interface
     if st.session_state.agent_state.get("jobs"):
         st.markdown("---")
-        with st.container():
-            st.markdown("### Resume Customization")
-            selected_position = st.selectbox(
-                "Select Target Position:",
-                [job.get("Job Title", "Unspecified Role") for job in st.session_state.agent_state["jobs"]]
+        st.markdown("### ✨ Resume Tailoring")
+        
+        job_titles = [job.get("Job Title", "Unknown Position") for job in st.session_state.agent_state["jobs"]]
+        selected_title = st.selectbox("Which job would you like to tailor your resume for?", job_titles)
+        
+        if selected_title:
+            selected_job = next(
+                job for job in st.session_state.agent_state["jobs"] 
+                if job.get("Job Title") == selected_title
             )
+            st.session_state.agent_state["selected_job"] = selected_job
             
-            if st.button("Generate Optimization Strategy"):
-                selected_job = next(
-                    job for job in st.session_state.agent_state["jobs"] 
-                    if job.get("Job Title") == selected_position
-                )
-                st.session_state.agent_state["selected_job"] = selected_job
+            if st.button("Generate Tailored Resume Suggestions"):
                 result = tailor_resume(st.session_state.agent_state)
                 st.session_state.agent_state.update(result)
                 
-                with st.expander("Customization Recommendations"):
-                    st.write(st.session_state.agent_state["current_response"])
+                st.markdown("### 📝 Customization Suggestions")
+                st.write(st.session_state.agent_state["current_response"])
 
-if __name__ == "__main__":
-    async def main():
-        with st_redirect():
-            main_interface()
-    
-    asyncio.run(main())
+    # Debug section
+    if st.session_state.agent_state.get('jobs'):
+        with st.expander("🔧 Debug Information"):
+            st.write("Agent State:", st.session_state.agent_state)
+            st.write("History:", st.session_state.agent_state.get("history", []))
+
+# Run main application
+main_application()

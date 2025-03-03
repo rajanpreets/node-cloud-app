@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 @contextmanager
 def get_db_connection():
+    """Get database connection using Streamlit secrets"""
     try:
         conn = psycopg2.connect(
             dbname=st.secrets["DB_NAME"],
@@ -24,10 +25,11 @@ def get_db_connection():
         finally:
             conn.close()
     except Exception as e:
-        logger.error(f"Connection failed: {str(e)}")
+        logger.error(f"Database connection failed: {str(e)}")
         raise
 
 def init_db():
+    """Initialize database tables"""
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
@@ -56,16 +58,17 @@ def init_db():
                 """)
                 conn.commit()
     except Exception as e:
-        logger.error(f"Init failed: {str(e)}")
+        logger.error(f"Database initialization failed: {str(e)}")
         raise
 
 def create_user(username: str, password: str, email: str, payment_id: str) -> int:
+    """Create new user with validation"""
     if len(password) < 8:
         raise ValueError("Password must be at least 8 characters")
         
-    with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            try:
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
                 password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
                 cur.execute("""
                     INSERT INTO users (username, password_hash, email, payment_id)
@@ -75,17 +78,14 @@ def create_user(username: str, password: str, email: str, payment_id: str) -> in
                 user_id = cur.fetchone()[0]
                 conn.commit()
                 return user_id
-            except psycopg2.IntegrityError as e:
-                conn.rollback()
-                if "users_payment_id_key" in str(e):
-                    raise ValueError("Payment already used")
-                raise ValueError("Username already exists")
-            except Exception as e:
-                conn.rollback()
-                logger.error(f"Create user failed: {str(e)}")
-                raise RuntimeError("Registration failed")
+    except psycopg2.IntegrityError as e:
+        raise ValueError("Username or payment already exists") from e
+    except Exception as e:
+        logger.error(f"User creation failed: {str(e)}")
+        raise RuntimeError("Registration failed") from e
 
 def get_user_by_username(username: str) -> Optional[Tuple]:
+    """Retrieve user by username"""
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
@@ -96,17 +96,19 @@ def get_user_by_username(username: str) -> Optional[Tuple]:
                 """, (username,))
                 return cur.fetchone()
     except Exception as e:
-        logger.error(f"Get user failed: {str(e)}")
+        logger.error(f"User retrieval failed: {str(e)}")
         return None
 
 def verify_password(stored_hash: str, password: str) -> bool:
+    """Securely verify password"""
     try:
         return bcrypt.checkpw(password.encode(), stored_hash.encode())
     except Exception as e:
-        logger.error(f"Password verify failed: {str(e)}")
+        logger.error(f"Password verification failed: {str(e)}")
         return False
 
 def update_last_login(username: str):
+    """Update user's last login timestamp"""
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
@@ -117,14 +119,14 @@ def update_last_login(username: str):
                 """, (username,))
                 conn.commit()
     except Exception as e:
-        logger.error(f"Update last login failed: {str(e)}")
+        logger.error(f"Login update failed: {str(e)}")
         raise
 
-def verify_payment(payment_id: str):
+def verify_payment(payment_id: str) -> bool:
+    """Verify and activate payment"""
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                # Update user status
                 cur.execute("""
                     UPDATE users
                     SET payment_status = 'active',
@@ -135,7 +137,6 @@ def verify_payment(payment_id: str):
                 user_id = cur.fetchone()
                 
                 if user_id:
-                    # Record payment
                     cur.execute("""
                         INSERT INTO payments 
                         (user_id, payment_id, amount, status)
@@ -149,6 +150,7 @@ def verify_payment(payment_id: str):
         raise
 
 def is_subscription_active(username: str) -> bool:
+    """Check if user has active subscription"""
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:

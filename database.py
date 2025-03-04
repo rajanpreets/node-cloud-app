@@ -32,7 +32,6 @@ def init_db():
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                # Users table
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS users (
                         id SERIAL PRIMARY KEY,
@@ -40,8 +39,7 @@ def init_db():
                         password_hash VARCHAR(100) NOT NULL,
                         email VARCHAR(100),
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        last_login TIMESTAMP,
-                        is_admin BOOLEAN DEFAULT FALSE
+                        last_login TIMESTAMP
                     );
                 """)
                 conn.commit()
@@ -55,7 +53,7 @@ def get_user_by_username(username: str) -> Optional[Tuple]:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT id, username, password_hash, email, is_admin 
+                    SELECT id, username, password_hash, email 
                     FROM users 
                     WHERE username = %s
                 """, (username,))
@@ -86,42 +84,3 @@ def update_last_login(username: str):
     except Exception as e:
         logger.error(f"Update last login failed: {str(e)}")
         raise
-
-def is_admin(username: str) -> bool:
-    """Check if a user is an admin"""
-    try:
-        with get_db_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT is_admin FROM users WHERE username = %s
-                """, (username,))
-                result = cur.fetchone()
-                return result[0] if result else False
-    except Exception as e:
-        logger.error(f"Admin check failed: {str(e)}")
-        return False
-
-def admin_create_user(username: str, password: str, email: str) -> int:
-    """Admin-only function to create new users"""
-    if len(password) < 8:
-        raise ValueError("Password must be at least 8 characters")
-    
-    with get_db_connection() as conn:
-        with conn.cursor() as cur:
-            try:
-                password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-                cur.execute("""
-                    INSERT INTO users (username, password_hash, email, is_admin)
-                    VALUES (%s, %s, %s, FALSE)
-                    RETURNING id
-                """, (username, password_hash, email))
-                user_id = cur.fetchone()[0]
-                conn.commit()
-                return user_id
-            except psycopg2.IntegrityError:
-                conn.rollback()
-                raise ValueError("Username already exists")
-            except Exception as e:
-                conn.rollback()
-                logger.error(f"User creation failed: {str(e)}")
-                raise RuntimeError("User creation failed")

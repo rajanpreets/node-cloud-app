@@ -17,6 +17,29 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Remove Streamlit UI elements
+st.markdown("""
+<style>
+    /* Hide header, footer, and menu */
+    header { visibility: hidden; }
+    .stApp > header { display: none; }
+    #MainMenu { visibility: hidden; }
+    footer { visibility: hidden; }
+    /* Hide deploy button */
+    .stDeployButton { display: none; }
+    /* Hide 'Manage app' button */
+    [data-testid="manage-app-button"] { display: none; }
+    /* Hide GitHub icon */
+    [data-testid="stHeader"] [data-testid="stDecoration"] { display: none; }
+    /* Hide three-dot menu */
+    [data-testid="stActionButton"] { display: none; }
+    /* Hide pen symbol */
+    [data-testid="stToolbar"] { display: none; }
+</style>
+""", unsafe_allow_html=True)
+
+# Rest of your code...
+
 # Professional CSS styling
 st.markdown("""
 <style>

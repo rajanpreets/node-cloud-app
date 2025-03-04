@@ -103,7 +103,13 @@ def retrieve_jobs(state: AgentState):
             include_metadata=True,
             namespace="jobs"
         )
-        jobs = [match.metadata for match in results.matches if match.metadata]
+        jobs = [{
+            'Job Title': match.metadata.get('title'),
+            'Company Name': match.metadata.get('company'),
+            'Location': match.metadata.get('location'),
+            'Job Description': match.metadata.get('description'),
+            'Job Link': match.metadata.get('link')
+        } for match in results.matches if match.metadata]
         return {"jobs": jobs, "history": ["Retrieved jobs from Pinecone"]}
     except Exception as e:
         return {"error": str(e), "history": ["Job retrieval failed"]}
@@ -112,7 +118,7 @@ def generate_analysis(state: AgentState):
     if not state.get("jobs"):
         return {"current_response": "No jobs found for analysis", "history": ["Skipped analysis"]}
     
-    job_texts = "\n\n".join([f"Title: {job.get('Job Title')}\nCompany: {job.get('Company Name')}\nDescription: {job.get('Job Description', '')[:300]}" 
+    job_texts = "\n\n".join([f"Title: {job.get('Job Title')}\nCompany: {job.get('Company Name')}\nLocation: {job.get('Location')}\nDescription: {job.get('Job Description', '')[:300]}" 
                       for job in state["jobs"]])
     
     prompt = ChatPromptTemplate.from_messages([
@@ -158,7 +164,7 @@ app = workflow.compile()
 # Streamlit UI components
 def display_jobs_table(jobs):
     if not jobs:
-        st.warning("No jobs found")
+        st.warning("No matching jobs found")
         return
     
     try:
@@ -170,7 +176,7 @@ def display_jobs_table(jobs):
             "Link": job.get("Job Link", "#")
         } for job in jobs])
         
-        st.markdown("### Matching Jobs")
+        st.markdown("### Best Matching Jobs")
         st.dataframe(
             jobs_df,
             column_config={
@@ -237,11 +243,13 @@ with st.sidebar:
 
 # Main Application Functionality
 def main_application():
-    st.write("Welcome to the AI Career Assistant. Paste your resume below to get started.")
-
-    resume_text = st.text_area("Paste your resume text here...", height=200)
-
-    if resume_text:
+    with st.form("resume_form"):
+        resume_text = st.text_area("Paste your resume text here and press Enter to analyze:", 
+                                 height=200,
+                                 help="Press Enter to submit after pasting your resume")
+        submitted = st.form_submit_button("Analyze Resume")
+        
+    if submitted and resume_text:
         st.session_state.agent_state.update({
             "resume_text": resume_text,
             "selected_job": None
@@ -256,27 +264,31 @@ def main_application():
         st.markdown("### Career Advisor Analysis")
         st.write(st.session_state.agent_state["current_response"])
 
-    # Tailoring interface
-    if st.session_state.agent_state.get("jobs"):
-        st.markdown("---")
-        st.markdown("### Resume Tailoring")
-        
-        job_titles = [job.get("Job Title", "Unknown Position") for job in st.session_state.agent_state["jobs"]]
-        selected_title = st.selectbox("Select a job to tailor your resume for:", job_titles)
-        
-        if selected_title:
-            selected_job = next(
-                job for job in st.session_state.agent_state["jobs"] 
-                if job.get("Job Title") == selected_title
-            )
-            st.session_state.agent_state["selected_job"] = selected_job
+        # Display job matches
+        if st.session_state.agent_state.get("jobs"):
+            st.markdown("---")
+            display_jobs_table(st.session_state.agent_state["jobs"])
             
-            if st.button("Generate Tailored Resume Suggestions"):
-                result = tailor_resume(st.session_state.agent_state)
-                st.session_state.agent_state.update(result)
+            # Tailoring interface
+            st.markdown("---")
+            st.markdown("### Resume Tailoring")
+            
+            job_titles = [job.get("Job Title", "Unknown Position") for job in st.session_state.agent_state["jobs"]]
+            selected_title = st.selectbox("Select a job to tailor your resume for:", job_titles)
+            
+            if selected_title:
+                selected_job = next(
+                    job for job in st.session_state.agent_state["jobs"] 
+                    if job.get("Job Title") == selected_title
+                )
+                st.session_state.agent_state["selected_job"] = selected_job
                 
-                st.markdown("### Customization Suggestions")
-                st.write(st.session_state.agent_state["current_response"])
+                if st.button("Generate Tailored Suggestions"):
+                    result = tailor_resume(st.session_state.agent_state)
+                    st.session_state.agent_state.update(result)
+                    
+                    st.markdown("### Customization Suggestions")
+                    st.write(st.session_state.agent_state["current_response"])
 
 # Run main application
 main_application()

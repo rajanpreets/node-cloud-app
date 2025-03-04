@@ -17,24 +17,29 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Remove Streamlit UI elements
+# Remove ALL Streamlit UI elements including creator icon
 st.markdown("""
 <style>
-    /* Hide header, footer, and menu */
+    /* Hide default Streamlit elements */
     header { visibility: hidden; }
     .stApp > header { display: none; }
     #MainMenu { visibility: hidden; }
     footer { visibility: hidden; }
-    /* Hide deploy button */
     .stDeployButton { display: none; }
-    /* Hide 'Manage app' button */
     [data-testid="manage-app-button"] { display: none; }
-    /* Hide GitHub icon */
     [data-testid="stHeader"] [data-testid="stDecoration"] { display: none; }
-    /* Hide three-dot menu */
     [data-testid="stActionButton"] { display: none; }
-    /* Hide pen symbol */
     [data-testid="stToolbar"] { display: none; }
+    
+    /* Specifically target creator icon */
+    .st-emotion-cache-1dp5vir { 
+        display: none !important; 
+    }
+    /* Hide footer completely */
+    footer:before {
+        content: '';
+        display: none !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 

@@ -11,25 +11,39 @@ import time
 from database import init_db, get_user_by_username, verify_password, update_last_login
 
 # Set page config
-st.set_page_config(page_title="💬 AI Career Assistant", layout="wide")
+st.set_page_config(
+    page_title="AI Career Assistant",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-# Custom CSS
+# Custom CSS for a professional look
 st.markdown("""
 <style>
     .main { background-color: #f8f9fa; }
-    .stButton>button { 
-        background-color: #4a4e69; 
-        color: white; 
-        border-radius: 4px; 
+    .stButton>button {
+        background-color: #4a4e69;
+        color: white;
+        border-radius: 4px;
         padding: 0.5rem 1rem;
+        font-weight: bold;
     }
     .stTextInput input, .stTextArea textarea {
         border: 1px solid #dee2e6;
         border-radius: 4px;
+        padding: 8px;
     }
-    .stDataFrame { 
-        border: 1px solid #dee2e6; 
-        border-radius: 4px; 
+    .stDataFrame {
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
+        color: #2c3e50;
+    }
+    .stSidebar {
+        background-color: #f8f9fa;
+        padding: 20px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -66,7 +80,7 @@ def init_pinecone():
                 time.sleep(1)
         return pc.Index(INDEX_NAME)
     except Exception as e:
-        st.error(f"❌ Pinecone initialization failed: {str(e)}")
+        st.error(f"Pinecone initialization failed: {str(e)}")
         st.stop()
 
 index = init_pinecone()
@@ -76,10 +90,10 @@ try:
     embedding_model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
     llm = ChatGroq(model="llama3-8b-8192", temperature=0, api_key=GROQ_API_KEY)
 except Exception as e:
-    st.error(f"❌ Model initialization failed: {str(e)}")
+    st.error(f"Model initialization failed: {str(e)}")
     st.stop()
 
-# LangGraph nodes and workflow (unchanged)
+# LangGraph nodes and workflow
 def retrieve_jobs(state: AgentState):
     try:
         query_embedding = embedding_model.encode(state["resume_text"]).tolist()
@@ -156,7 +170,7 @@ def display_jobs_table(jobs):
             "Link": job.get("Job Link", "#")
         } for job in jobs])
         
-        st.markdown("### 🗃 Matching Jobs")
+        st.markdown("### Matching Jobs")
         st.dataframe(
             jobs_df,
             column_config={
@@ -169,10 +183,10 @@ def display_jobs_table(jobs):
     except Exception as e:
         st.error(f"Error displaying jobs: {str(e)}")
 
-# Simplified Authentication UI
+# Authentication UI
 def authentication_ui():
     with st.container():
-        st.markdown("## 🔐 Login")
+        st.markdown("## Login")
         with st.form("Login"):
             username = st.text_input("Username")
             password = st.text_input("Password", type="password")
@@ -189,7 +203,7 @@ def authentication_ui():
                     st.error("Invalid credentials")
 
 # Main UI
-st.title("💬 AI Career Assistant")
+st.title("AI Career Assistant")
 
 # Initialize session state
 if 'logged_in' not in st.session_state:
@@ -223,10 +237,9 @@ with st.sidebar:
 
 # Main Application Functionality
 def main_application():
-    with st.chat_message("assistant"):
-        st.write("Hi! I'm your AI career assistant. Paste your resume below and I'll help you find relevant jobs!")
+    st.write("Welcome to the AI Career Assistant. Paste your resume below to get started.")
 
-    resume_text = st.chat_input("Paste your resume text here...")
+    resume_text = st.text_area("Paste your resume text here...", height=200)
 
     if resume_text:
         st.session_state.agent_state.update({
@@ -240,21 +253,16 @@ def main_application():
                 st.session_state.agent_state.update(value)
         
         st.markdown("---")
-        with st.chat_message("assistant"):
-            st.markdown("### 🎯 Here's what I found for you:")
-            display_jobs_table(st.session_state.agent_state["jobs"])
-            
-            st.markdown("---")
-            st.markdown("### 📊 Career Advisor Analysis")
-            st.write(st.session_state.agent_state["current_response"])
+        st.markdown("### Career Advisor Analysis")
+        st.write(st.session_state.agent_state["current_response"])
 
     # Tailoring interface
     if st.session_state.agent_state.get("jobs"):
         st.markdown("---")
-        st.markdown("### ✨ Resume Tailoring")
+        st.markdown("### Resume Tailoring")
         
         job_titles = [job.get("Job Title", "Unknown Position") for job in st.session_state.agent_state["jobs"]]
-        selected_title = st.selectbox("Which job would you like to tailor your resume for?", job_titles)
+        selected_title = st.selectbox("Select a job to tailor your resume for:", job_titles)
         
         if selected_title:
             selected_job = next(
@@ -267,7 +275,7 @@ def main_application():
                 result = tailor_resume(st.session_state.agent_state)
                 st.session_state.agent_state.update(result)
                 
-                st.markdown("### 📝 Customization Suggestions")
+                st.markdown("### Customization Suggestions")
                 st.write(st.session_state.agent_state["current_response"])
 
 # Run main application

@@ -8,10 +8,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from typing import TypedDict, List, Annotated
 import operator
 import time
-from database import (
-    init_db, get_user_by_username, verify_password, update_last_login,
-    is_admin, admin_create_user
-)
+from database import init_db, get_user_by_username, verify_password, update_last_login
 
 # Set page config
 st.set_page_config(page_title="💬 AI Career Assistant", layout="wide")
@@ -172,7 +169,7 @@ def display_jobs_table(jobs):
     except Exception as e:
         st.error(f"Error displaying jobs: {str(e)}")
 
-# Authentication UI
+# Simplified Authentication UI
 def authentication_ui():
     with st.container():
         st.markdown("## 🔐 Login")
@@ -190,23 +187,6 @@ def authentication_ui():
                     st.rerun()
                 else:
                     st.error("Invalid credentials")
-
-# Admin UI
-def admin_ui():
-    st.markdown("## 🛠 Admin Panel")
-    with st.form("Create User"):
-        st.write("Create a new user:")
-        new_username = st.text_input("New Username")
-        new_email = st.text_input("Email")
-        new_password = st.text_input("New Password", type="password")
-        submit = st.form_submit_button("Create User")
-        
-        if submit:
-            try:
-                user_id = admin_create_user(new_username, new_password, new_email)
-                st.success(f"User created successfully! ID: {user_id}")
-            except Exception as e:
-                st.error(f"Error creating user: {str(e)}")
 
 # Main UI
 st.title("💬 AI Career Assistant")
@@ -241,11 +221,7 @@ with st.sidebar:
         st.rerun()
     st.write(f"Logged in as: {st.session_state.username}")
 
-# Admin panel (if user is admin)
-if is_admin(st.session_state.username):
-    admin_ui()
-
-# Main application functionality
+# Main Application Functionality
 def main_application():
     with st.chat_message("assistant"):
         st.write("Hi! I'm your AI career assistant. Paste your resume below and I'll help you find relevant jobs!")

@@ -104,11 +104,11 @@ def retrieve_jobs(state: AgentState):
             namespace="jobs"
         )
         jobs = [{
-            'Job Title': match.metadata.get('title'),
-            'Company Name': match.metadata.get('company'),
-            'Location': match.metadata.get('location'),
-            'Job Description': match.metadata.get('description'),
-            'Job Link': match.metadata.get('link')
+            'Job Title': match.metadata.get('title') or 'N/A',
+            'Company Name': match.metadata.get('company') or 'N/A',
+            'Location': match.metadata.get('location') or 'N/A',
+            'Job Description': match.metadata.get('description') or '',
+            'Job Link': match.metadata.get('link') or '#'
         } for match in results.matches if match.metadata]
         return {"jobs": jobs, "history": ["Retrieved jobs from Pinecone"]}
     except Exception as e:
@@ -118,12 +118,19 @@ def generate_analysis(state: AgentState):
     if not state.get("jobs"):
         return {"current_response": "No jobs found for analysis", "history": ["Skipped analysis"]}
     
-    job_texts = "\n\n".join([f"Title: {job.get('Job Title')}\nCompany: {job.get('Company Name')}\nLocation: {job.get('Location')}\nDescription: {job.get('Job Description', '')[:300]}" 
-                      for job in state["jobs"]])
+    job_texts = []
+    for job in state["jobs"]:
+        description = (job.get('Job Description') or '')[:300]
+        job_texts.append(
+            f"Title: {job.get('Job Title', 'N/A')}\n"
+            f"Company: {job.get('Company Name', 'N/A')}\n"
+            f"Location: {job.get('Location', 'N/A')}\n"
+            f"Description: {description}"
+        )
     
     prompt = ChatPromptTemplate.from_messages([
         ("system", "You're a career advisor. Analyze these jobs and give 3-5 brief recommendations:"),
-        ("human", f"Resume content will follow this message. Here are matching jobs:\n\n{job_texts}\n\nProvide concise, actionable advice for the applicant.")
+        ("human", f"Resume content will follow this message. Here are matching jobs:\n\n{'\n\n'.join(job_texts)}\n\nProvide concise, actionable advice for the applicant.")
     ])
     
     try:
@@ -137,9 +144,10 @@ def tailor_resume(state: AgentState):
         return {"current_response": "No job selected for tailoring", "history": ["Skipped tailoring"]}
     
     try:
+        job_desc = state['selected_job'].get('Job Description', '')
         prompt = ChatPromptTemplate.from_messages([
             ("system", "You're a professional resume writer. Tailor this resume for the specific job."),
-            ("human", f"Job Title: {state['selected_job']['Job Title']}\nJob Description:\n{state['selected_job'].get('Job Description', '')}\n\nResume:\n{state['resume_text']}\n\nProvide specific suggestions to modify the resume. Focus on matching keywords and required skills.")
+            ("human", f"Job Title: {state['selected_job']['Job Title']}\nJob Description:\n{job_desc}\n\nResume:\n{state['resume_text']}\n\nProvide specific suggestions to modify the resume. Focus on matching keywords and required skills.")
         ])
         response = llm.invoke(prompt.format_messages())
         return {"current_response": response.content, "history": ["Generated tailored resume suggestions"]}
@@ -251,7 +259,7 @@ def main_application():
         
     if submitted and resume_text:
         st.session_state.agent_state.update({
-            "resume_text": resume_text,
+            "resume_text": resume_text.strip(),
             "selected_job": None
         })
         
@@ -278,17 +286,19 @@ def main_application():
             
             if selected_title:
                 selected_job = next(
-                    job for job in st.session_state.agent_state["jobs"] 
-                    if job.get("Job Title") == selected_title
+                    (job for job in st.session_state.agent_state["jobs"] 
+                    if job.get("Job Title") == selected_title),
+                    None
                 )
-                st.session_state.agent_state["selected_job"] = selected_job
-                
-                if st.button("Generate Tailored Suggestions"):
-                    result = tailor_resume(st.session_state.agent_state)
-                    st.session_state.agent_state.update(result)
+                if selected_job:
+                    st.session_state.agent_state["selected_job"] = selected_job
                     
-                    st.markdown("### Customization Suggestions")
-                    st.write(st.session_state.agent_state["current_response"])
+                    if st.button("Generate Tailored Suggestions"):
+                        result = tailor_resume(st.session_state.agent_state)
+                        st.session_state.agent_state.update(result)
+                        
+                        st.markdown("### Customization Suggestions")
+                        st.write(st.session_state.agent_state["current_response"])
 
 # Run main application
 main_application()
